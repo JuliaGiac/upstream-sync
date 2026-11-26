@@ -1,0 +1,43 @@
+# gitallow: ignore everything by default, then allow tracked paths explicitly.
+*
+
+!.gitignore
+!README.md
+!CHANGELOG.md
+!LICENSE
+!justfile
+!llms.txt
+!llms-full.txt
+!Project.toml
+!upstreams.toml
+
+!bin/
+!bin/upstream-sync.jl
+
+!src/
+!src/*.jl
+
+!test/
+!test/*.jl
+!test/fixtures/
+!test/fixtures/giac-index.html
+!test/fixtures/md5sum.txt
+
+!docs/
+!docs/Project.toml
+!docs/make.jl
+!docs/llms.jl
+!docs/src/
+!docs/src/*.md
+
+!.github/
+!.github/dependabot.yml
+!.github/workflows/
+!.github/workflows/*.yml
+
+# Never tracked, even if allowed above: the download cache (release
+# tarballs, checksum files, extraction and merge work directories), Pkg
+# manifests and the documentation build.
+cache/
+Manifest*.toml
+docs/build/
