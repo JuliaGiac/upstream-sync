@@ -44,7 +44,7 @@ docs = ["doc/", "*.md", "..."]
 | `export_paths` | | `[]` | git pathspecs of the upstream sources whose changes are "our fixes" |
 | `export_exclude` | | `[]` | git glob pathspecs removed from `export_paths` |
 | `export_modified_only` | | `true` | only count modifications of files that exist upstream, not files we added or deleted |
-| `fork_excluded_paths` | | `[]` | upstream files the fork branch intentionally does not carry; `merge-plan` reports a "deleted by us" conflict on them as expected (keep the deletion) rather than as a real conflict |
+| `fork_excluded_paths` | | `[]` | upstream files the fork branch intentionally does not carry; `merge-plan` reports a "deleted by us" conflict on them as expected (keep the deletion) rather than as a real conflict, and lists the files upstream adds under them (merged without a conflict) to be removed |
 | `areas.build`, `areas.src`, `areas.docs` | | `[]` | patterns grouping merge-plan files; first match wins in the order build, src, docs; anything else is "other" |
 
 Patterns (`areas`, `fork_excluded_paths`): `dir/` matches everything below

@@ -55,6 +55,9 @@
         ".gitignore" => "*.o\n",
         "obj.o" => "not really an object\n",
         ".github/workflows/upstream.yml" => "name: upstream\n",
+        # New upstream file under fork_excluded_paths: git adds it to the
+        # fork without a conflict.
+        "m4/new.m4" => "dnl new in 1.1.0\n",
     )
 
     """
