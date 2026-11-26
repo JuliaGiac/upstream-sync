@@ -121,6 +121,8 @@
             Dict("doc/manual.txt" => "manual 1.0.0, clarified\n"))
         commit!("autotools", "chore: remove autotools", Dict{String, String}();
             delete = ["configure.ac"])
+        commit!("readme", "docs: drop the plain-text README", Dict{String, String}();
+            delete = ["README"])
         return commits
     end
 
@@ -142,6 +144,7 @@
         export_paths = ["src/"]
         export_exclude = ["**/meson.build"]
         export_modified_only = true
+        fork_excluded_paths = ["/configure.ac", "m4/"]
 
         [$name.areas]
         build = ["meson.build", "configure.ac", "Makefile.am"]
@@ -149,6 +152,33 @@
         docs = ["doc/", "README"]
         """)
         return path
+    end
+
+    """
+    Give `repo` a bare `origin` (fetched), and return a function that pushes
+    one more commit to `branch` on origin from another clone, making the
+    local branch of `repo` stale.
+    """
+    function add_origin(root, repo)
+        origin = joinpath(root, "origin.git")
+        git(root, "clone", "-q", "--bare", repo, origin)
+        git(repo, "remote", "add", "origin", origin)
+        git(repo, "fetch", "-q", "origin")
+        n = Ref(0)
+        function advance(branch)
+            other = mktempdir()
+            git(other, "clone", "-q", "-b", branch, origin, "w")
+            w = joinpath(other, "w")
+            git(w, "config", "user.name", "Someone Else")
+            git(w, "config", "user.email", "else@example.org")
+            n[] += 1
+            write_files(w, Dict(".github/extra-$(n[]).yml" => "x: $(n[])\n"))
+            git(w, "add", "-A")
+            git(w, "commit", "-q", "-m", "chore: pushed elsewhere")
+            git(w, "push", "-q", "origin", branch)
+            return gitout(w, "rev-parse", "HEAD")
+        end
+        return advance
     end
 
     """A complete fresh sandbox: site, repo, config and cache directory."""

@@ -63,3 +63,47 @@ short(sha::AbstractString) = first(sha, 7)
 
 # NUL-separated git output -> paths
 nulsplit(s::AbstractString) = filter!(!isempty, split(s, '\0'))
+
+"""
+    check_not_stale(repo, branch, ref, sha; allow_stale=false, io=stdout,
+                    remote="origin")
+
+Refuse to work from a local `branch` (resolved to `ref` at `sha`) that
+differs from the same branch on `remote` (read with `git ls-remote`), unless
+`allow_stale`. Without such a remote, or if the remote has no such branch,
+only a note is printed.
+"""
+function check_not_stale(repo, branch, ref, sha; allow_stale::Bool = false,
+        io::IO = stdout, remote::AbstractString = "origin")
+    if run_git(["remote", "get-url", remote]; dir = repo).code != 0
+        println(io, "note: no remote \"$remote\" in $repo, cannot check that ",
+            "$branch is up to date")
+        return nothing
+    end
+    r = run_git(["ls-remote", remote, "refs/heads/" * branch]; dir = repo)
+    if r.code != 0
+        msg = "cannot read $branch from $remote to check that it is up to date:\n" *
+              strip(r.err)
+        allow_stale || throw(UpstreamSyncError(msg * "\n(use --allow-stale to skip the check)"))
+        println(io, "warning: ", msg)
+        return nothing
+    end
+    line = strip(r.out)
+    if isempty(line)
+        println(io, "note: $remote has no branch $branch, cannot check it is up to date")
+        return nothing
+    end
+    remote_sha = first(split(line, '\t'))
+    remote_sha == sha && return nothing
+    msg = "$ref ($(short(sha))) differs from $branch on $remote ($(short(remote_sha)))"
+    if allow_stale
+        println(io, "warning: $msg; continuing because of --allow-stale")
+        return nothing
+    end
+    fix = startswith(ref, "refs/heads/") ?
+          "git -C $repo fetch $remote $branch:$branch  (or `git pull --ff-only` " *
+          "if $branch is checked out)" :
+          "git -C $repo fetch $remote"
+    throw(UpstreamSyncError("$msg.\nUpdate it first:\n  $fix\n" *
+                            "or pass --allow-stale to use it anyway."))
+end

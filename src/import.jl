@@ -146,7 +146,7 @@ end
 
 """
     import_release(u, version; repo, cache=cache_dir(), io=stdout,
-                   force=false, offline=false) -> ImportResult
+                   force=false, offline=false, allow_stale=false) -> ImportResult
 
 Import an upstream release tarball into the local clone `repo`:
 download (cached) and verify it, then create the commit
@@ -155,11 +155,13 @@ directory stripped) plus the kept paths of the upstream branch, on the new
 branch `upstream-import/X.Y.Z` (parent: the upstream branch), and the
 annotated tag `upstream/X.Y.Z`. Author and committer are the local git
 identity. The working tree is not touched and nothing is pushed.
-With `force`, an existing branch and tag are replaced.
+With `force`, an existing branch and tag are replaced. The import refuses
+to start when the local upstream branch differs from `origin`'s, unless
+`allow_stale` (see [`check_not_stale`](@ref)).
 """
 function import_release(u::Upstream, v::VersionNumber; repo,
         cache::AbstractString = cache_dir(), io::IO = stdout,
-        force::Bool = false, offline::Bool = false)
+        force::Bool = false, offline::Bool = false, allow_stale::Bool = false)
     repo = check_repo(repo)
     branch = import_branch(u, v)
     tag = tag_name(u, v)
@@ -170,6 +172,7 @@ function import_release(u::Upstream, v::VersionNumber; repo,
             "tag $tag already exists in $repo (use --force to replace it)"))
     end
     up_ref, up_sha = resolve_branch(repo, u.upstream_branch)
+    check_not_stale(repo, u.upstream_branch, up_ref, up_sha; allow_stale, io)
     src = fetch_release(u, v; cache, offline, io)
     root = extract_tarball(src.path, joinpath(cache, "work"))
     tree, dropped = try

@@ -23,6 +23,7 @@ Base.@kwdef struct Upstream
     export_paths::Vector{String} = String[]
     export_exclude::Vector{String} = String[]
     export_modified_only::Bool = true
+    fork_excluded_paths::Vector{String} = String[]
     areas::Dict{String, Vector{String}} = Dict{String, Vector{String}}()
 end
 
@@ -71,6 +72,7 @@ function parse_upstream(name::AbstractString, t::AbstractDict)
         export_paths = strings(get(t, "export_paths", String[])),
         export_exclude = strings(get(t, "export_exclude", String[])),
         export_modified_only = Bool(get(t, "export_modified_only", true)),
+        fork_excluded_paths = strings(get(t, "fork_excluded_paths", String[])),
         areas,
     )
 end
@@ -114,3 +116,13 @@ commit_url(u::Upstream, hash::AbstractString) = repo_url(u) * "/commit/" * hash
 
 url_join(base::AbstractString, file::AbstractString) =
     endswith(base, "/") ? base * file : base * "/" * file
+
+"""
+    fork_excluded(u, path) -> Bool
+
+Whether `path` is one of the upstream files that the fork branch
+intentionally does not carry (`fork_excluded_paths`, patterns as in
+[`pathmatch`](@ref)).
+"""
+fork_excluded(u::Upstream, path::AbstractString) =
+    any(p -> pathmatch(p, path), u.fork_excluded_paths)
