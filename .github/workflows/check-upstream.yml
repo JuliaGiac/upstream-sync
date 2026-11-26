@@ -1,0 +1,86 @@
+# Weekly check for new upstream releases.
+#
+# Runs `upstream-sync check` for every configured upstream. When a release
+# newer than the latest `upstream/X.Y.Z` tag of the fork exists, an issue
+# "New upstream release: <name> <X.Y.Z>" is opened in THIS repository (or
+# updated if it is already open). Nothing is imported or pushed: the import
+# is done by the maintainer (see README.md, "Release procedure").
+name: Check upstream releases
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: check-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1"
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+
+      - name: Check upstream releases
+        id: check
+        run: |
+          set +e
+          julia --project=. bin/upstream-sync.jl check --github-output | tee check.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          # 0 = up to date, 10 = new release available, anything else = error
+          if [ "$rc" != 0 ] && [ "$rc" != 10 ]; then
+            echo "::error::upstream-sync check failed with exit status $rc"
+            exit "$rc"
+          fi
+
+      - name: Open or update issues
+        if: steps.check.outputs.exit_code == '10'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_RELEASES: ${{ steps.check.outputs.new_releases }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          IFS=',' read -ra releases <<< "$NEW_RELEASES"
+          for entry in "${releases[@]}"; do
+            name="${entry% *}"
+            version="${entry#* }"
+            title="New upstream release: $name $version"
+            {
+              echo "A new upstream release of **$name** is available: **$version**."
+              echo
+              echo '```text'
+              cat check.txt
+              echo '```'
+              echo
+              echo "Next steps (see README.md, \"Release procedure\"):"
+              echo
+              echo '```sh'
+              echo "julia --project=. bin/upstream-sync.jl import $name $version --repo <clone of the fork>"
+              echo "julia --project=. bin/upstream-sync.jl merge-plan $name $version --repo <clone of the fork>"
+              echo '```'
+              echo
+              echo "Detected by $RUN_URL"
+            } > body.md
+            number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+              --search "in:title \"$title\"" --json number,title \
+              --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body-file body.md
+              echo "updated issue #$number: $title"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md
+              echo "opened issue: $title"
+            fi
+          done
