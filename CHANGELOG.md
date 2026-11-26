@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The documentation is published to https://juliagiac.github.io/upstream-sync/
+  by `.github/workflows/pages.yml` on every push to `main`.
 - `import` and `merge-plan` refuse to work from a local upstream (resp.
   fork) branch that differs from the same branch on `origin` (read with
   `git ls-remote`), with the command to update it; `--allow-stale`
