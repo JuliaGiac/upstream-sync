@@ -11,6 +11,7 @@ UpstreamSync.main
 UpstreamSync.ExitCode
 check
 import_release
+tag_release
 merge_plan
 export_changes
 ```
@@ -20,6 +21,7 @@ export_changes
 ```@docs
 UpstreamSync.CheckResult
 UpstreamSync.ImportResult
+UpstreamSync.TagResult
 UpstreamSync.MergePlan
 UpstreamSync.FileChange
 UpstreamSync.Conflict
@@ -57,6 +59,7 @@ UpstreamSync.fetch_release
 UpstreamSync.extract_tarball
 UpstreamSync.tarball_executables
 UpstreamSync.build_tree
+UpstreamSync.tag_message
 UpstreamSync.export_pathspecs
 UpstreamSync.Area
 UpstreamSync.area_title

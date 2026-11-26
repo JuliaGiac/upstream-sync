@@ -5,7 +5,8 @@ julia --project=. bin/upstream-sync.jl [--config FILE] [--cache DIR] <command> .
 ```
 
 With [just](https://github.com/casey/just): `just check`, `just import giac
-2.1.0 ../giac`, `just merge-plan giac 2.1.0 ../giac`, `just export giac ../giac`.
+2.1.0 ../giac`, `just tag giac 2.1.0 ../giac`, `just merge-plan giac 2.1.0
+../giac`, `just export giac ../giac`.
 
 ## `check [NAME] [--repo PATH|URL] [--github-output]`
 
@@ -28,9 +29,13 @@ In a local clone of the fork:
    whose tree is **exactly** the tarball (bytes as published: no
    `.gitignore`, `.gitattributes` or end-of-line filtering; file modes from
    the tar headers) plus the kept paths of `main`. The commit is
-   "import upstream giac X.Y.Z", with the source URL and checksum in its
-   body; author and committer are your local git identity;
-4. creates the annotated tag `upstream/X.Y.Z` on that commit.
+   "import upstream giac X.Y.Z", with the source URL, the checksum and the
+   tree hash (`Tree: <hash>`) in its body; author and committer are your
+   local git identity.
+
+It does **not** tag: the pull request may be merged with a method that
+rewrites the commit (squash, rebase), so the tag is created afterwards by
+`tag`.
 
 The working tree and index of the clone are not touched (the commit is
 built with a temporary index). Nothing is pushed; the next steps are
@@ -40,6 +45,25 @@ The import refuses to start when the local `main` differs from `main` on
 `origin` (read with `git ls-remote origin`): an import based on a stale
 `main` would, for instance, drop the kept `.github/` files committed since.
 Update it first (`git fetch origin main:main`) or pass `--allow-stale`.
+
+## `tag NAME X.Y.Z --repo PATH [--force] [--offline]`
+
+Run once the import pull request is merged, **with any merge method**:
+
+1. fetches `main` from `origin` (unless `--offline`);
+2. finds the commit of `origin/main` with the tree of the import: the
+   import commit itself if it is on `main` (merge commit, fast-forward),
+   otherwise the oldest commit with the same tree (squash, rebase). The
+   import tree is read from the `upstream-import/X.Y.Z` branch (local or
+   `origin/`), or, if that branch was deleted, from the "import upstream
+   giac X.Y.Z" commit on `main` (its `Tree:` line, or its own tree);
+3. creates the annotated tag `upstream/X.Y.Z` there, with the source URL
+   and checksum of the import.
+
+It refuses when no commit of `main` has that tree (pull request not merged
+yet) or when `upstream/X.Y.Z` already exists on another commit (`--force`
+moves it); it is a no-op when the tag is already right. It prints the
+`git push origin upstream/X.Y.Z` command and never pushes.
 
 ## `merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force] [--allow-stale] [--resolve-expected [--worktree DIR]]`
 

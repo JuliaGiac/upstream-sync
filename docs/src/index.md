@@ -20,7 +20,7 @@ long-lived branches:
 
 | Branch | Content |
 |---|---|
-| `main` | the **pristine upstream tree**, one commit per imported release, imported from the release tarball and tagged `upstream/X.Y.Z`. The only non-upstream files are the *kept paths* (for giac: `.github/`, the Dependabot configuration). |
+| `main` | the **pristine upstream tree**, one commit per imported release, imported from the release tarball through a pull request and tagged `upstream/X.Y.Z` once merged. The only non-upstream files are the *kept paths* (for giac: `.github/`, the Dependabot configuration). |
 | `dev` | **our fork**: Meson build, fixes, tests, site, CI. Upstream releases reach `dev` by merging `main` (or the import branch). |
 
 So `git diff upstream/X.Y.Z dev` is exactly "what we changed", and
