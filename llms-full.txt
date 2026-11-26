@@ -31,11 +31,14 @@ long-lived branches:
 So `git diff upstream/X.Y.Z dev` is exactly "what we changed", and
 `git diff upstream/A upstream/B` is exactly "what upstream changed".
 
-Currently configured: `giac` ([JuliaGiac/giac](https://github.com/JuliaGiac/giac)).
-`xcas` ([s-celles/xcas](https://github.com/s-celles/xcas)) is a commented
-TODO in `upstreams.toml`: its sources are a subset of the giac tarball and
-its `main` only holds a README, so what `main` should contain must be
-decided first.
+Only `giac` ([JuliaGiac/giac](https://github.com/JuliaGiac/giac)) is
+configured. On its `dev` branch, MicroPython (`micropython/`, replacing
+upstream's vendored `micropython-1.12/`) and the Xcas FLTK GUI
+([s-celles/xcas](https://github.com/s-celles/xcas), extracted from the giac
+tarball) are git submodules and are **deliberately not synced** with
+upstream: Giac.jl only needs libgiac. Their upstream paths, like the
+autotools files replaced by Meson, are listed in `fork_excluded_paths` so
+that `merge-plan` treats upstream changes to them as expected.
 
 ## Installation
 
@@ -74,7 +77,7 @@ reports whether a newer release exists. Without `NAME`, every configured
 upstream is checked. `--github-output` appends
 `new_releases=<name> <X.Y.Z>,...` and `status=...` to `$GITHUB_OUTPUT`.
 
-## `import NAME X.Y.Z --repo PATH [--force] [--offline]`
+## `import NAME X.Y.Z --repo PATH [--force] [--offline] [--allow-stale]`
 
 In a local clone of the fork:
 
@@ -94,7 +97,12 @@ The working tree and index of the clone are not touched (the commit is
 built with a temporary index). Nothing is pushed; the next steps are
 printed. `--force` replaces an existing branch and tag.
 
-## `merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force]`
+The import refuses to start when the local `main` differs from `main` on
+`origin` (read with `git ls-remote origin`): an import based on a stale
+`main` would, for instance, drop the kept `.github/` files committed since.
+Update it first (`git fetch origin main:main`) or pass `--allow-stale`.
+
+## `merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force] [--allow-stale] [--resolve-expected [--worktree DIR]]`
 
 Creates the branch `sync/X.Y.Z` from `dev`, tries
 `git merge --no-commit upstream-import/X.Y.Z` on it (in a temporary
@@ -103,9 +111,22 @@ worktree), aborts the merge, and writes a Markdown report
 
 - the files changed upstream (added/modified/deleted, lines, per area);
 - the upstream changes touching files we modified on `dev`;
-- the conflicting files grouped by area: Meson/build, src fixes, docs,
+- the **expected conflicts**: "deleted by us" conflicts on
+  `fork_excluded_paths` (files `dev` intentionally does not carry, such as
+  `micropython-1.12/`, the Xcas GUI sources and the autotools build), to be
+  resolved by keeping the deletion;
+- the **real conflicts** grouped by area: Meson/build, src fixes, docs,
   other (areas are configured in `upstreams.toml`), with their kind
   ("both modified", "deleted by us", ...).
+
+Like `import`, it refuses a local `dev` that differs from `origin`'s unless
+`--allow-stale`.
+
+With `--resolve-expected`, the merge is not aborted: it is left in progress
+in a worktree of `sync/X.Y.Z` (default: `<repo>-sync-X.Y.Z` next to the
+clone, or `--worktree DIR`), with the expected conflicts resolved by
+`git rm` and the real ones still marked. Nothing is committed: finish the
+merge there, then `git worktree remove` it.
 
 ## `export NAME --repo PATH [--output FILE]`
 
@@ -149,16 +170,20 @@ X.Y.Z" in this repository. Then, for giac X.Y.Z:
    ```
    Merge that pull request **with a merge commit** (not squash, not rebase)
    so that the tagged commit stays on `main`.
-4. **Plan the fork update**:
+4. **Plan the fork update** (with `dev` up to date: `git -C ../giac pull --ff-only`):
    ```sh
-   julia --project=. bin/upstream-sync.jl merge-plan giac X.Y.Z --repo ../giac
+   julia --project=. bin/upstream-sync.jl merge-plan giac X.Y.Z --repo ../giac \
+     --resolve-expected
    ```
-   Read `merge-plan-giac-X.Y.Z.md`: conflicts by area, upstream changes on
-   files we patched.
-5. **Merge into dev**: `git switch sync/X.Y.Z && git merge
-   upstream-import/X.Y.Z`, resolve the conflicts ("deleted by us" files are
-   usually kept deleted: `git rm`), bump the version in `meson.build`, run
-   the tests, push `sync/X.Y.Z` and open a pull request to `dev`.
+   Read `merge-plan-giac-X.Y.Z.md`: expected and real conflicts, upstream
+   changes on files we patched. A "deleted by us" real conflict is a file
+   `dev` removed outside `fork_excluded_paths`: keep the deletion or restore
+   the file, and update `fork_excluded_paths` if the removal is intended.
+5. **Merge into dev**: in the worktree `../giac-sync-X.Y.Z` (branch
+   `sync/X.Y.Z`, merge in progress, expected conflicts already resolved),
+   resolve the real conflicts, bump the version in `meson.build`, run the
+   tests, `git commit`, push `sync/X.Y.Z` and open a pull request to `dev`.
+   Then `git -C ../giac worktree remove ../giac-sync-X.Y.Z`.
 6. **Send our fixes upstream**:
    `julia --project=. bin/upstream-sync.jl export giac --repo ../giac --output fixes.md`
    and send the links of the relevant commits to Bernard Parisse.
@@ -185,6 +210,7 @@ keep_paths = [".github/"]
 export_paths = ["src/", "check/"]
 export_exclude = ["**/meson.build"]
 export_modified_only = true
+fork_excluded_paths = ["micropython-1.12/", "src/hist.*", "/configure", "..."]
 
 [giac.areas]
 build = ["meson.build", "configure.ac", "m4/", "..."]
@@ -210,13 +236,27 @@ docs = ["doc/", "*.md", "..."]
 | `export_paths` | | `[]` | git pathspecs of the upstream sources whose changes are "our fixes" |
 | `export_exclude` | | `[]` | git glob pathspecs removed from `export_paths` |
 | `export_modified_only` | | `true` | only count modifications of files that exist upstream, not files we added or deleted |
+| `fork_excluded_paths` | | `[]` | upstream files the fork branch intentionally does not carry; `merge-plan` reports a "deleted by us" conflict on them as expected (keep the deletion) rather than as a real conflict |
 | `areas.build`, `areas.src`, `areas.docs` | | `[]` | patterns grouping merge-plan files; first match wins in the order build, src, docs; anything else is "other" |
 
-Area patterns: `dir/` matches everything below `dir/`; a pattern containing
-`/` is a glob on the whole path; a pattern without `/` (`meson.build`,
-`*.md`) matches the file name at any depth; `*`, `?` and `**` are globs.
+Patterns (`areas`, `fork_excluded_paths`): `dir/` matches everything below
+`dir/`; a pattern containing `/` is a glob on the whole path; a pattern
+without `/` (`meson.build`, `*.md`) matches the file name at any depth; a
+leading `/` anchors the pattern at the root (`/configure` is only the
+top-level `configure`, `/mk*` matches `mkosx` but not `src/mkfoo`); `*`, `?`
+and `**` are globs.
+
+For giac, `fork_excluded_paths` lists what `dev` removed from the upstream
+tree on purpose: `micropython-1.12/` (a submodule `micropython/` on `dev`),
+the Xcas FLTK GUI sources (moved to s-celles/xcas, a submodule), the
+autotools build replaced by Meson, legacy platform scripts and packaging,
+and the plain-text docs converted to Markdown. MicroPython and Xcas are not
+synced with upstream: Giac.jl only needs libgiac.
 
 Branches are looked up as local branches first, then as `origin/<branch>`.
+`import` (upstream branch) and `merge-plan` (fork branch) compare that ref
+with the branch on `origin` (`git ls-remote origin`) and refuse a stale one
+unless `--allow-stale`; without an `origin` remote only a note is printed.
 
 ## Environment
 
@@ -264,7 +304,7 @@ exists.
 ### `import_release`
 
 import_release(u, version; repo, cache=cache_dir(), io=stdout,
-                   force=false, offline=false) -> ImportResult
+                   force=false, offline=false, allow_stale=false) -> ImportResult
 
 Import an upstream release tarball into the local clone `repo`:
 download (cached) and verify it, then create the commit
@@ -273,18 +313,29 @@ directory stripped) plus the kept paths of the upstream branch, on the new
 branch `upstream-import/X.Y.Z` (parent: the upstream branch), and the
 annotated tag `upstream/X.Y.Z`. Author and committer are the local git
 identity. The working tree is not touched and nothing is pushed.
-With `force`, an existing branch and tag are replaced.
+With `force`, an existing branch and tag are replaced. The import refuses
+to start when the local upstream branch differs from `origin`'s, unless
+`allow_stale` (see [`check_not_stale`](@ref)).
 
 ### `merge_plan`
 
 merge_plan(u, version; repo, cache=cache_dir(), output=nothing,
-               io=stdout, force=false) -> MergePlan
+               io=stdout, force=false, allow_stale=false,
+               resolve_expected=false, worktree=nothing) -> MergePlan
 
 Create the branch `sync/X.Y.Z` from the fork branch, try
 `git merge --no-commit upstream-import/X.Y.Z` on it (in a temporary
 worktree, so the working tree of `repo` is not touched), abort the merge,
 and write a Markdown report to `output` (default
-`merge-plan-<name>-X.Y.Z.md` in the current directory). Nothing is pushed.
+`merge-plan-<name>-X.Y.Z.md` in the current directory).
+
+"Deleted by us" conflicts on `fork_excluded_paths` are reported as
+expected, apart from the real conflicts. With `resolve_expected`, the merge
+is not aborted: it is left in progress in `worktree` (default
+[`default_sync_worktree`](@ref)) with the expected conflicts resolved by
+`git rm` and the real ones still marked. Nothing is committed or pushed.
+Refuses a local fork branch that differs from `origin`'s unless
+`allow_stale`.
 
 ### `export_changes`
 
@@ -322,7 +373,10 @@ MergePlan
 
 Outcome of [`merge_plan`](@ref). `changes` are the upstream file changes,
 `overlap` the upstream-changed files that the fork also modified,
-`conflicts` the files `git merge` could not merge, `markdown` the report.
+`conflicts` the real conflicts left by `git merge`, `expected` the
+"deleted by us" conflicts on `fork_excluded_paths` (resolved by keeping the
+deletion), `worktree` the directory holding the merge in progress (with
+`resolve_expected`, else `nothing`), `markdown` the report.
 
 ### `UpstreamSync.FileChange`
 
@@ -372,6 +426,14 @@ The `upstreams.toml` shipped at the root of this project.
 ### `UpstreamSync.get_upstream`
 
 get_upstream(config, name) -> Upstream
+
+### `UpstreamSync.fork_excluded`
+
+fork_excluded(u, path) -> Bool
+
+Whether `path` is one of the upstream files that the fork branch
+intentionally does not carry (`fork_excluded_paths`, patterns as in
+[`pathmatch`](@ref)).
 
 ### `UpstreamSync.cache_dir`
 
@@ -519,7 +581,9 @@ Match a repository path against a pattern:
 - `dir/` (trailing slash) matches everything below `dir/`;
 - a pattern containing `/` is a glob on the whole path (`*`, `?`, `**`);
 - a pattern without `/` is a glob on the file name (`meson.build`,
-  `*.md`), at any depth.
+  `*.md`), at any depth;
+- a leading `/` anchors the pattern at the root (`/configure` matches
+  `configure` only, `/mk*` matches `mkosx` but not `src/mkfoo`).
 
 ### `UpstreamSync.classify`
 
@@ -547,6 +611,34 @@ Run git in `repo`; return stdout without the trailing newline; throw an
 resolve_branch(repo, branch) -> (ref, sha)
 
 A local branch `refs/heads/<branch>`, or else `refs/remotes/origin/<branch>`.
+
+### `UpstreamSync.check_not_stale`
+
+check_not_stale(repo, branch, ref, sha; allow_stale=false, io=stdout,
+                    remote="origin")
+
+Refuse to work from a local `branch` (resolved to `ref` at `sha`) that
+differs from the same branch on `remote` (read with `git ls-remote`), unless
+`allow_stale`. Without such a remote, or if the remote has no such branch,
+only a note is printed.
+
+### `UpstreamSync.try_merge`
+
+try_merge(repo, sync, import_ref, wt; keep=false, resolve=raw -> String[])
+        -> Vector{(path, code)}
+
+`git merge --no-commit import_ref` in a new worktree `wt` of branch `sync`
+and return the conflicted paths with their porcelain codes. Without `keep`
+the merge is aborted and the worktree removed. With `keep`, the paths
+returned by `resolve(conflicts)` are `git rm`-ed and the worktree is left
+with the merge in progress.
+
+### `UpstreamSync.default_sync_worktree`
+
+default_sync_worktree(u, version, repo) -> String
+
+Where `merge-plan --resolve-expected` leaves the merge: `<repo>-sync-X.Y.Z`
+next to the clone.
 
 ## Errors
 

@@ -34,6 +34,7 @@ UpstreamSync.Upstream
 UpstreamSync.load_config
 UpstreamSync.default_config_path
 UpstreamSync.get_upstream
+UpstreamSync.fork_excluded
 UpstreamSync.cache_dir
 ```
 
@@ -64,6 +65,9 @@ UpstreamSync.classify
 UpstreamSync.run_git
 UpstreamSync.git
 UpstreamSync.resolve_branch
+UpstreamSync.check_not_stale
+UpstreamSync.try_merge
+UpstreamSync.default_sync_worktree
 ```
 
 ## Errors

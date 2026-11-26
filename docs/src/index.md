@@ -26,11 +26,14 @@ long-lived branches:
 So `git diff upstream/X.Y.Z dev` is exactly "what we changed", and
 `git diff upstream/A upstream/B` is exactly "what upstream changed".
 
-Currently configured: `giac` ([JuliaGiac/giac](https://github.com/JuliaGiac/giac)).
-`xcas` ([s-celles/xcas](https://github.com/s-celles/xcas)) is a commented
-TODO in `upstreams.toml`: its sources are a subset of the giac tarball and
-its `main` only holds a README, so what `main` should contain must be
-decided first.
+Only `giac` ([JuliaGiac/giac](https://github.com/JuliaGiac/giac)) is
+configured. On its `dev` branch, MicroPython (`micropython/`, replacing
+upstream's vendored `micropython-1.12/`) and the Xcas FLTK GUI
+([s-celles/xcas](https://github.com/s-celles/xcas), extracted from the giac
+tarball) are git submodules and are **deliberately not synced** with
+upstream: Giac.jl only needs libgiac. Their upstream paths, like the
+autotools files replaced by Meson, are listed in `fork_excluded_paths` so
+that `merge-plan` treats upstream changes to them as expected.
 
 ## Installation
 

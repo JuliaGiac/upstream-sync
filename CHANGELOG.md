@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `import` and `merge-plan` refuse to work from a local upstream (resp.
+  fork) branch that differs from the same branch on `origin` (read with
+  `git ls-remote`), with the command to update it; `--allow-stale`
+  overrides.
+- `fork_excluded_paths`: upstream files the fork branch intentionally does
+  not carry. `merge-plan` reports "deleted by us" conflicts on them as
+  expected conflicts, separately from the real ones.
+- `merge-plan --resolve-expected [--worktree DIR]`: leaves the merge in
+  progress in a worktree of `sync/X.Y.Z` (default `<repo>-sync-X.Y.Z`) with
+  the expected conflicts resolved by `git rm`; nothing is committed.
+- Path patterns accept a leading `/` to anchor at the root of the tree.
+
+### Changed
+
+- giac: `fork_excluded_paths` lists `micropython-1.12/`, the Xcas GUI
+  sources, the autotools build, legacy scripts and plain-text docs removed
+  on `dev`. For 2.1.0 this leaves 1 real conflict (`check/geo.out`) out of
+  117.
+
+### Removed
+
+- The xcas TODO in `upstreams.toml`: MicroPython and Xcas are submodules of
+  the giac fork's `dev` and are not synced with upstream.
+
 ## [0.1.0] - 2026-11-26
 
 ### Added

@@ -16,7 +16,7 @@ reports whether a newer release exists. Without `NAME`, every configured
 upstream is checked. `--github-output` appends
 `new_releases=<name> <X.Y.Z>,...` and `status=...` to `$GITHUB_OUTPUT`.
 
-## `import NAME X.Y.Z --repo PATH [--force] [--offline]`
+## `import NAME X.Y.Z --repo PATH [--force] [--offline] [--allow-stale]`
 
 In a local clone of the fork:
 
@@ -36,7 +36,12 @@ The working tree and index of the clone are not touched (the commit is
 built with a temporary index). Nothing is pushed; the next steps are
 printed. `--force` replaces an existing branch and tag.
 
-## `merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force]`
+The import refuses to start when the local `main` differs from `main` on
+`origin` (read with `git ls-remote origin`): an import based on a stale
+`main` would, for instance, drop the kept `.github/` files committed since.
+Update it first (`git fetch origin main:main`) or pass `--allow-stale`.
+
+## `merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force] [--allow-stale] [--resolve-expected [--worktree DIR]]`
 
 Creates the branch `sync/X.Y.Z` from `dev`, tries
 `git merge --no-commit upstream-import/X.Y.Z` on it (in a temporary
@@ -45,9 +50,22 @@ worktree), aborts the merge, and writes a Markdown report
 
 - the files changed upstream (added/modified/deleted, lines, per area);
 - the upstream changes touching files we modified on `dev`;
-- the conflicting files grouped by area: Meson/build, src fixes, docs,
+- the **expected conflicts**: "deleted by us" conflicts on
+  `fork_excluded_paths` (files `dev` intentionally does not carry, such as
+  `micropython-1.12/`, the Xcas GUI sources and the autotools build), to be
+  resolved by keeping the deletion;
+- the **real conflicts** grouped by area: Meson/build, src fixes, docs,
   other (areas are configured in `upstreams.toml`), with their kind
   ("both modified", "deleted by us", ...).
+
+Like `import`, it refuses a local `dev` that differs from `origin`'s unless
+`--allow-stale`.
+
+With `--resolve-expected`, the merge is not aborted: it is left in progress
+in a worktree of `sync/X.Y.Z` (default: `<repo>-sync-X.Y.Z` next to the
+clone, or `--worktree DIR`), with the expected conflicts resolved by
+`git rm` and the real ones still marked. Nothing is committed: finish the
+merge there, then `git worktree remove` it.
 
 ## `export NAME --repo PATH [--output FILE]`
 
