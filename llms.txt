@@ -1,0 +1,18 @@
+# UpstreamSync
+
+> Julia tooling that keeps the JuliaGiac forks (main = pristine upstream tree tagged upstream/X.Y.Z, dev = our fork) in sync with Bernard Parisse's Giac release tarballs: check for releases, import a tarball as a tagged commit, plan the merge into dev, export our fixes as GitHub commit links.
+
+Command line: `julia --project=. bin/upstream-sync.jl <command>`; exit status 0 = ok/up to date, 1 = error, 10 = new upstream release. Nothing is ever pushed.
+
+## Docs
+
+- [Overview](https://github.com/JuliaGiac/upstream-sync/blob/main/docs/src/index.md): purpose, the main/dev convention, installation
+- [Commands](https://github.com/JuliaGiac/upstream-sync/blob/main/docs/src/commands.md): check, import, merge-plan, export and exit status
+- [Release procedure](https://github.com/JuliaGiac/upstream-sync/blob/main/docs/src/release.md): step by step, from the weekly issue to dev
+- [Configuration](https://github.com/JuliaGiac/upstream-sync/blob/main/docs/src/configuration.md): upstreams.toml keys and environment
+- [API](https://github.com/JuliaGiac/upstream-sync/blob/main/docs/src/api.md): Julia functions and result types
+
+## Optional
+
+- [Configuration file](https://github.com/JuliaGiac/upstream-sync/blob/main/upstreams.toml): the configured upstreams
+- [Full documentation](https://github.com/JuliaGiac/upstream-sync/blob/main/llms-full.txt): all pages in one file

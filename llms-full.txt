@@ -1,0 +1,565 @@
+# UpstreamSync
+
+> Julia tooling that keeps the JuliaGiac forks (main = pristine upstream tree tagged upstream/X.Y.Z, dev = our fork) in sync with Bernard Parisse's Giac release tarballs: check for releases, import a tarball as a tagged commit, plan the merge into dev, export our fixes as GitHub commit links.
+
+
+# UpstreamSync
+
+Julia tooling that keeps the JuliaGiac forks in sync with Bernard Parisse's
+upstream releases of [Giac](https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac.html).
+
+Upstream does not use a public version control system: releases are
+published as tarballs (`giac-X.Y.Z.tar.gz`) with an `md5sum.txt` in
+<https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/>. This project
+turns each tarball into a tagged commit of the fork, prepares the merge of
+that release into our fork, and lists our fixes so that they can be sent
+back upstream.
+
+Nothing here ever pushes, opens pull requests or posts anything: every
+command works on a local clone and prints the next steps.
+
+## The main/dev convention
+
+Each fork (configured in [`upstreams.toml`](https://github.com/JuliaGiac/upstream-sync/blob/main/upstreams.toml)) has two
+long-lived branches:
+
+| Branch | Content |
+|---|---|
+| `main` | the **pristine upstream tree**, one commit per imported release, imported from the release tarball and tagged `upstream/X.Y.Z`. The only non-upstream files are the *kept paths* (for giac: `.github/`, the Dependabot configuration). |
+| `dev` | **our fork**: Meson build, fixes, tests, site, CI. Upstream releases reach `dev` by merging `main` (or the import branch). |
+
+So `git diff upstream/X.Y.Z dev` is exactly "what we changed", and
+`git diff upstream/A upstream/B` is exactly "what upstream changed".
+
+Currently configured: `giac` ([JuliaGiac/giac](https://github.com/JuliaGiac/giac)).
+`xcas` ([s-celles/xcas](https://github.com/s-celles/xcas)) is a commented
+TODO in `upstreams.toml`: its sources are a subset of the giac tarball and
+its `main` only holds a README, so what `main` should contain must be
+decided first.
+
+## Installation
+
+Requirements: Julia ≥ 1.10, `git` ≥ 2.28 and `tar` (with `gzip`/`bzip2`/`xz`)
+on the `PATH`.
+
+```sh
+git clone https://github.com/JuliaGiac/upstream-sync.git
+cd upstream-sync
+julia --project=. -e 'using Pkg; Pkg.instantiate()'    # or: just instantiate
+```
+
+## Contents
+
+- [Commands](commands.md) and [exit status](commands.md#Exit-status)
+- [Release procedure](release.md)
+- [Configuration](configuration.md)
+- [API](api.md)
+
+
+# Commands
+
+```text
+julia --project=. bin/upstream-sync.jl [--config FILE] [--cache DIR] <command> ...
+```
+
+With [just](https://github.com/casey/just): `just check`, `just import giac
+2.1.0 ../giac`, `just merge-plan giac 2.1.0 ../giac`, `just export giac ../giac`.
+
+## `check [NAME] [--repo PATH|URL] [--github-output]`
+
+Lists the release versions found in the upstream index, the latest one and
+the latest imported one (the highest `upstream/X.Y.Z` tag, read with
+`git ls-remote --tags` from the GitHub repository, or from `--repo`), and
+reports whether a newer release exists. Without `NAME`, every configured
+upstream is checked. `--github-output` appends
+`new_releases=<name> <X.Y.Z>,...` and `status=...` to `$GITHUB_OUTPUT`.
+
+## `import NAME X.Y.Z --repo PATH [--force] [--offline]`
+
+In a local clone of the fork:
+
+1. downloads `giac-X.Y.Z.tar.gz` and `md5sum.txt` (the tarball is cached in
+   `cache/`, or `$UPSTREAM_SYNC_CACHE`, and reused; the checksum file is
+   always refreshed unless `--offline`) and verifies the checksum;
+2. extracts the tarball and strips its top directory;
+3. creates the branch `upstream-import/X.Y.Z` from `main` with one commit
+   whose tree is **exactly** the tarball (bytes as published: no
+   `.gitignore`, `.gitattributes` or end-of-line filtering; file modes from
+   the tar headers) plus the kept paths of `main`. The commit is
+   "import upstream giac X.Y.Z", with the source URL and checksum in its
+   body; author and committer are your local git identity;
+4. creates the annotated tag `upstream/X.Y.Z` on that commit.
+
+The working tree and index of the clone are not touched (the commit is
+built with a temporary index). Nothing is pushed; the next steps are
+printed. `--force` replaces an existing branch and tag.
+
+## `merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force]`
+
+Creates the branch `sync/X.Y.Z` from `dev`, tries
+`git merge --no-commit upstream-import/X.Y.Z` on it (in a temporary
+worktree), aborts the merge, and writes a Markdown report
+(`merge-plan-<name>-X.Y.Z.md` by default) with:
+
+- the files changed upstream (added/modified/deleted, lines, per area);
+- the upstream changes touching files we modified on `dev`;
+- the conflicting files grouped by area: Meson/build, src fixes, docs,
+  other (areas are configured in `upstreams.toml`), with their kind
+  ("both modified", "deleted by us", ...).
+
+## `export NAME --repo PATH [--output FILE]`
+
+Lists our changes to the upstream sources, as Markdown: the commits of
+`dev` that are not on `main` and modify the configured source paths (for
+giac `src/` and `check/`, without `meson.build` files), oldest first, each
+with date, hash, subject and GitHub URL
+(`https://github.com/JuliaGiac/giac/commit/<hash>`), and the diffstat of
+`main...dev` on those paths. This is what the maintainer sends upstream as
+links.
+
+## Exit status
+
+| Status | Meaning |
+|---:|---|
+| 0 | success; for `check`: every upstream is up to date |
+| 1 | error (message on stderr) |
+| 10 | `check` only: a release newer than the latest `upstream/X.Y.Z` tag exists |
+
+
+# Release procedure
+
+The weekly workflow [`check-upstream.yml`](https://github.com/JuliaGiac/upstream-sync/blob/main/.github/workflows/check-upstream.yml)
+runs `check` and opens (or updates) an issue "New upstream release: giac
+X.Y.Z" in this repository. Then, for giac X.Y.Z:
+
+1. **Check** (optional, the issue already did it):
+   `julia --project=. bin/upstream-sync.jl check giac`
+2. **Import** into an up-to-date clone of the fork:
+   ```sh
+   git -C ../giac fetch origin && git -C ../giac branch -f main origin/main
+   julia --project=. bin/upstream-sync.jl import giac X.Y.Z --repo ../giac
+   ```
+   Review it: `git -C ../giac show --stat upstream-import/X.Y.Z`.
+3. **Publish the import** (this tool never pushes):
+   ```sh
+   git -C ../giac push origin upstream-import/X.Y.Z
+   git -C ../giac push origin upstream/X.Y.Z
+   gh pr create --repo JuliaGiac/giac --base main --head upstream-import/X.Y.Z \
+     --title "import upstream giac X.Y.Z"
+   ```
+   Merge that pull request **with a merge commit** (not squash, not rebase)
+   so that the tagged commit stays on `main`.
+4. **Plan the fork update**:
+   ```sh
+   julia --project=. bin/upstream-sync.jl merge-plan giac X.Y.Z --repo ../giac
+   ```
+   Read `merge-plan-giac-X.Y.Z.md`: conflicts by area, upstream changes on
+   files we patched.
+5. **Merge into dev**: `git switch sync/X.Y.Z && git merge
+   upstream-import/X.Y.Z`, resolve the conflicts ("deleted by us" files are
+   usually kept deleted: `git rm`), bump the version in `meson.build`, run
+   the tests, push `sync/X.Y.Z` and open a pull request to `dev`.
+6. **Send our fixes upstream**:
+   `julia --project=. bin/upstream-sync.jl export giac --repo ../giac --output fixes.md`
+   and send the links of the relevant commits to Bernard Parisse.
+7. Close the issue.
+
+
+# Configuration
+
+Upstreams are configured in `upstreams.toml` at the root of the project
+(another file can be given with `--config FILE`). Each table describes one
+fork:
+
+```toml
+[giac]
+repo = "JuliaGiac/giac"
+upstream_branch = "main"
+fork_branch = "dev"
+index_url = "https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/"
+release_regex = '^giac-(\d+\.\d+\.\d+)\.tar\.gz$'
+release_file = "giac-{version}.tar.gz"
+checksum_file = "md5sum.txt"
+checksum_algorithm = "md5"
+keep_paths = [".github/"]
+export_paths = ["src/", "check/"]
+export_exclude = ["**/meson.build"]
+export_modified_only = true
+
+[giac.areas]
+build = ["meson.build", "configure.ac", "m4/", "..."]
+src = ["src/"]
+docs = ["doc/", "*.md", "..."]
+```
+
+| Key | Required | Default | Meaning |
+|---|---|---|---|
+| `repo` | yes | | GitHub repository of the fork (`owner/name`), used for `git ls-remote` and commit URLs |
+| `index_url` | yes | | HTML directory listing where releases appear |
+| `release_regex` | yes | | file names that are releases; capture group 1 is the `X.Y.Z` version |
+| `release_file` | yes | | tarball name of a version, `{version}` is replaced by `X.Y.Z` |
+| `checksum_file` | yes | | checksum list (`<hex>  <file>` lines) next to the tarballs |
+| `checksum_algorithm` | | `md5` | `md5`, `sha1`, `sha256` or `sha512` |
+| `download_url` | | `index_url` | base URL of the tarballs and checksum file (`file://` works) |
+| `upstream_branch` | | `main` | branch with the pristine upstream tree |
+| `fork_branch` | | `dev` | branch with the fork |
+| `tag_prefix` | | `upstream/` | prefix of the release tags |
+| `import_branch_prefix` | | `upstream-import/` | prefix of the import branches |
+| `sync_branch_prefix` | | `sync/` | prefix of the merge-plan branches |
+| `keep_paths` | | `[]` | paths of the upstream branch carried over by every import (`dir/` = folder); a tarball file inside them is dropped and listed in the commit message |
+| `export_paths` | | `[]` | git pathspecs of the upstream sources whose changes are "our fixes" |
+| `export_exclude` | | `[]` | git glob pathspecs removed from `export_paths` |
+| `export_modified_only` | | `true` | only count modifications of files that exist upstream, not files we added or deleted |
+| `areas.build`, `areas.src`, `areas.docs` | | `[]` | patterns grouping merge-plan files; first match wins in the order build, src, docs; anything else is "other" |
+
+Area patterns: `dir/` matches everything below `dir/`; a pattern containing
+`/` is a glob on the whole path; a pattern without `/` (`meson.build`,
+`*.md`) matches the file name at any depth; `*`, `?` and `**` are globs.
+
+Branches are looked up as local branches first, then as `origin/<branch>`.
+
+## Environment
+
+| Variable | Meaning |
+|---|---|
+| `UPSTREAM_SYNC_CACHE` | download cache (default: `cache/` in the project, ignored by git); `--cache DIR` overrides it. Tarballs are stored as `<cache>/<name>/<file>`; extraction and merge worktrees are created in `<cache>/work/` and removed afterwards. |
+| `GITHUB_OUTPUT` | file to which `check --github-output` appends its results |
+
+
+# API
+
+The command line tool is a thin wrapper around these functions; they can
+also be used from Julia (`using UpstreamSync`).
+
+## Entry points
+
+### `UpstreamSync`
+
+nothing
+
+### `UpstreamSync.main`
+
+main(args; io=stdout) -> Int
+
+Command line entry point (see `bin/upstream-sync.jl` and
+[`ExitCode`](@ref)). Returns the exit status instead of exiting.
+
+### `UpstreamSync.ExitCode`
+
+Exit status of the `upstream-sync` command line tool.
+
+- `ExitCode.OK` (0): success; for `check`, every upstream is up to date.
+- `ExitCode.ERROR` (1): an error occurred.
+- `ExitCode.NEW_RELEASE` (10): `check` found an upstream release newer than
+  the latest `upstream/X.Y.Z` tag.
+
+### `check`
+
+check(u; repo=nothing, io=stdout, index_html=nothing) -> CheckResult
+
+List the upstream releases (from `u.index_url`, or the given `index_html`),
+the latest one and the latest imported one; report whether a newer release
+exists.
+
+### `import_release`
+
+import_release(u, version; repo, cache=cache_dir(), io=stdout,
+                   force=false, offline=false) -> ImportResult
+
+Import an upstream release tarball into the local clone `repo`:
+download (cached) and verify it, then create the commit
+"import upstream <name> X.Y.Z" whose tree is the tarball's content (top
+directory stripped) plus the kept paths of the upstream branch, on the new
+branch `upstream-import/X.Y.Z` (parent: the upstream branch), and the
+annotated tag `upstream/X.Y.Z`. Author and committer are the local git
+identity. The working tree is not touched and nothing is pushed.
+With `force`, an existing branch and tag are replaced.
+
+### `merge_plan`
+
+merge_plan(u, version; repo, cache=cache_dir(), output=nothing,
+               io=stdout, force=false) -> MergePlan
+
+Create the branch `sync/X.Y.Z` from the fork branch, try
+`git merge --no-commit upstream-import/X.Y.Z` on it (in a temporary
+worktree, so the working tree of `repo` is not touched), abort the merge,
+and write a Markdown report to `output` (default
+`merge-plan-<name>-X.Y.Z.md` in the current directory). Nothing is pushed.
+
+### `export_changes`
+
+export_changes(u; repo, io=nothing, output=nothing) -> ExportReport
+
+List our changes to the upstream sources: the commits on the fork branch
+that are not on the upstream branch and touch `export_paths` (minus
+`export_exclude`; with `export_modified_only`, only modifications of
+existing files count), oldest first, with their GitHub URLs, plus the
+diffstat of `upstream...fork` on the same paths. The Markdown is written
+to `output` and/or printed to `io` when given.
+
+## Results
+
+### `UpstreamSync.CheckResult`
+
+CheckResult
+
+Outcome of [`check`](@ref): the upstream `releases`, the `latest` release
+version, the versions already `imported` (from `upstream/X.Y.Z` tags),
+the latest of them (`imported`, or `nothing`), and `new_release`.
+
+### `UpstreamSync.ImportResult`
+
+ImportResult
+
+Outcome of [`import_release`](@ref): the new `commit`, its `branch` and
+annotated `tag`, the source `url` and `checksum`, the `parent` commit
+(the upstream branch), and the tarball paths `dropped` because they fall in
+a kept path.
+
+### `UpstreamSync.MergePlan`
+
+MergePlan
+
+Outcome of [`merge_plan`](@ref). `changes` are the upstream file changes,
+`overlap` the upstream-changed files that the fork also modified,
+`conflicts` the files `git merge` could not merge, `markdown` the report.
+
+### `UpstreamSync.FileChange`
+
+FileChange(path, status, added, deleted, area)
+
+One file changed upstream between two imports (`status`: `A`, `M`, `D`,
+`T`; `added`/`deleted` lines, `-1` for binary files).
+
+### `UpstreamSync.Conflict`
+
+Conflict(path, status, area)
+
+A file left conflicted by `git merge` (`status` such as "both modified",
+"deleted by us").
+
+### `UpstreamSync.ExportReport`
+
+ExportReport
+
+Outcome of [`export_changes`](@ref): our `commits` touching the upstream
+sources, the `diffstat` of `upstream...fork` on those paths, and the
+`markdown` report.
+
+### `UpstreamSync.CommitInfo`
+
+CommitInfo(hash, date, subject, url, files)
+
+## Configuration
+
+### `UpstreamSync.Upstream`
+
+Upstream
+
+One fork and its upstream, as configured in `upstreams.toml` (see the
+comments in that file for the meaning of every field).
+
+### `UpstreamSync.load_config`
+
+load_config(path = default_config_path()) -> Dict{String,Upstream}
+
+### `UpstreamSync.default_config_path`
+
+default_config_path() -> String
+
+The `upstreams.toml` shipped at the root of this project.
+
+### `UpstreamSync.get_upstream`
+
+get_upstream(config, name) -> Upstream
+
+### `UpstreamSync.cache_dir`
+
+cache_dir() -> String
+
+Download cache: `$UPSTREAM_SYNC_CACHE`, or `cache/` at the project root
+(ignored by git). Tarballs are stored as `<cache>/<name>/<file>`.
+
+## Building blocks
+
+### `UpstreamSync.Release`
+
+Release(version, filename)
+
+An upstream release found in the download directory index.
+
+### `UpstreamSync.parse_index`
+
+parse_index(html, regex) -> Vector{Release}
+
+Releases listed in an (Apache-style) directory index: every link whose
+file name matches `regex`, whose first capture group is the `X.Y.Z`
+version. Sorted by version, one entry per version.
+
+### `UpstreamSync.latest_release`
+
+latest_release(releases) -> Union{Release, Nothing}
+
+### `UpstreamSync.parse_version`
+
+parse_version(s) -> VersionNumber
+
+Parse a strict `X.Y.Z` release version (no `v` prefix, no suffix).
+
+### `UpstreamSync.is_newer`
+
+is_newer(latest, imported) -> Bool
+
+Whether the `latest` upstream release is newer than the `imported` one.
+`nothing` means "no release" (`latest`) or "nothing imported yet"
+(`imported`).
+
+### `UpstreamSync.parse_upstream_tags`
+
+parse_upstream_tags(ls_remote_output, prefix) -> Vector{VersionNumber}
+
+Versions of the `refs/tags/<prefix>X.Y.Z` tags in the output of
+`git ls-remote --tags`, sorted and unique. Peeled entries (`^{}`) and
+non-version tags are ignored.
+
+### `UpstreamSync.imported_versions`
+
+imported_versions(u; repo=nothing) -> Vector{VersionNumber}
+
+Versions of the `upstream/X.Y.Z` tags, read with `git ls-remote --tags`
+from `repo` (a path or URL) or, by default, from the GitHub repository.
+
+### `UpstreamSync.parse_checksums`
+
+parse_checksums(text) -> Dict{String,String}
+
+Parse a `md5sum`/`sha256sum`-style file (`<hex>  <file>` or
+`<hex> *<file>` per line) into `file => lower-case hex`.
+
+### `UpstreamSync.file_digest`
+
+file_digest(path, algorithm) -> String
+
+Lower-case hexadecimal digest of a file (`md5`, `sha1`, `sha256`, `sha512`).
+
+### `UpstreamSync.checksum_ok`
+
+checksum_ok(path, expected, algorithm) -> Bool
+
+### `UpstreamSync.verify_checksum`
+
+verify_checksum(path, filename, checksums, algorithm) -> String
+
+Check `path` against `checksums[filename]`; return the digest. Throws
+[`ChecksumMismatch`](@ref) on mismatch and [`UpstreamSyncError`](@ref) if
+`filename` has no published checksum.
+
+### `UpstreamSync.fetch_text`
+
+fetch_text(url) -> String
+
+### `UpstreamSync.fetch_release`
+
+fetch_release(u, version; cache, offline=false, io=stdout)
+
+Download (or reuse from the cache) the release tarball and the checksum
+file, and verify the checksum. The checksum file is always refreshed unless
+`offline`; a cached tarball that no longer matches is downloaded again once
+(upstream sometimes re-uploads a release under the same name). Returns
+`(; url, path, filename, checksum)`.
+
+### `UpstreamSync.extract_tarball`
+
+extract_tarball(tarball, workdir) -> String
+
+Extract with the system `tar` into a fresh directory below `workdir` and
+return the tarball's single top-level directory.
+
+### `UpstreamSync.tarball_executables`
+
+tarball_executables(tarball) -> Set{String}
+
+Regular files of the tarball (top directory stripped) whose owner execute
+bit is set in the tar header. The extracted files are not trusted for this:
+some file systems (ACL or network mounts) report every file as executable.
+
+### `UpstreamSync.build_tree`
+
+build_tree(repo, root, keep_paths, upstream_sha; executables=nothing)
+        -> (tree, dropped)
+
+Write a git tree with the exact bytes of every file below `root` (no
+`.gitattributes`/`.gitignore`/eol filtering), with the `keep_paths` taken
+from `upstream_sha` instead. File modes are 100755 for the paths in
+`executables` (default: the owner execute bit on disk). Uses a temporary
+index: the working tree and the real index of `repo` are not touched.
+
+### `UpstreamSync.export_pathspecs`
+
+export_pathspecs(u) -> Vector{String}
+
+Git pathspecs for "our fixes": `export_paths` minus `export_exclude`
+(git glob pathspecs, e.g. `**/meson.build`).
+
+### `UpstreamSync.Area`
+
+Area of the tree a file belongs to, used to group merge conflicts.
+Values: `Area.BUILD`, `Area.SRC`, `Area.DOCS`, `Area.OTHER`.
+
+### `UpstreamSync.area_title`
+
+area_title(area) -> String
+
+### `UpstreamSync.pathmatch`
+
+pathmatch(pattern, path) -> Bool
+
+Match a repository path against a pattern:
+
+- `dir/` (trailing slash) matches everything below `dir/`;
+- a pattern containing `/` is a glob on the whole path (`*`, `?`, `**`);
+- a pattern without `/` is a glob on the file name (`meson.build`,
+  `*.md`), at any depth.
+
+### `UpstreamSync.classify`
+
+classify(path, areas) -> Area.T
+
+First area (in the order build, src, docs) with a matching pattern;
+`Area.OTHER` otherwise. `areas` maps `"build"`, `"src"`, `"docs"` to
+pattern lists (see [`pathmatch`](@ref)).
+
+### `UpstreamSync.run_git`
+
+run_git(args; dir=nothing, input=nothing, env=nothing) -> GitResult
+
+Run `git [-C dir] args...` without throwing, capturing stdout and stderr.
+
+### `UpstreamSync.git`
+
+git(repo, args...; input=nothing, env=nothing) -> String
+
+Run git in `repo`; return stdout without the trailing newline; throw an
+[`UpstreamSyncError`](@ref) if git fails.
+
+### `UpstreamSync.resolve_branch`
+
+resolve_branch(repo, branch) -> (ref, sha)
+
+A local branch `refs/heads/<branch>`, or else `refs/remotes/origin/<branch>`.
+
+## Errors
+
+### `UpstreamSync.UpstreamSyncError`
+
+UpstreamSyncError(msg)
+
+A user-facing error (bad configuration, missing branch, network failure,
+...). The CLI prints the message and exits with status 1 (see [`ExitCode`](@ref)).
+
+### `UpstreamSync.ChecksumMismatch`
+
+ChecksumMismatch(file, algorithm, expected, actual)
+
+The downloaded `file` does not have the checksum published upstream.
+

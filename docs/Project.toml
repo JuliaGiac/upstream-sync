@@ -1,0 +1,9 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+UpstreamSync = "6fa81cf5-1fa2-47ff-9a11-a11e9fb09e35"
+
+[sources]
+UpstreamSync = {path = ".."}
+
+[compat]
+Documenter = "1"
