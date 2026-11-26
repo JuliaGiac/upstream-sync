@@ -24,11 +24,24 @@
 #   export_exclude        git glob pathspecs removed from export_paths
 #   export_modified_only  list only modifications of files that exist
 #                         upstream (not files we added or deleted)
+#   fork_excluded_paths   upstream files the fork branch intentionally does
+#                         not carry: merge-plan reports a "deleted by us"
+#                         conflict on them as expected (keep the deletion),
+#                         not as a real conflict
 #   areas.build/src/docs  patterns grouping merge-plan conflicts; first
 #                         match wins in the order build, src, docs; the rest
-#                         is "other". "dir/" = everything below dir, a
-#                         pattern without "/" matches the file name at any
-#                         depth, "*", "?" and "**" are globs.
+#                         is "other".
+#
+# Patterns (areas, fork_excluded_paths): "dir/" = everything below dir; a
+# pattern containing "/" is a glob on the whole path; a pattern without "/"
+# matches the file name at any depth; a leading "/" anchors at the root
+# ("/configure" is only the top-level configure); "*", "?", "**" are globs.
+#
+# Only giac is synced. On the giac fork's dev branch, MicroPython
+# (micropython/, replacing upstream's vendored micropython-1.12/) and the
+# Xcas FLTK GUI (s-celles/xcas, extracted from the giac tarball) are git
+# submodules: they are deliberately NOT synced with upstream (Giac.jl only
+# needs libgiac), hence their upstream paths are in fork_excluded_paths.
 
 [giac]
 description = "Giac computer algebra system (Bernard Parisse)"
@@ -51,6 +64,39 @@ keep_paths = [".github/"]
 export_paths = ["src/", "check/"]
 export_exclude = ["**/meson.build"]
 export_modified_only = true
+# Upstream files dev removed on purpose (derived from everything dev deleted
+# from the 2.0.0 tree; covers the 116 "deleted by us" conflicts of 2.1.0).
+fork_excluded_paths = [
+    # MicroPython: vendored upstream, a git submodule (micropython/) on dev
+    "micropython-1.12/",
+    # Xcas FLTK GUI: moved to s-celles/xcas (a submodule of dev)
+    "src/Cfg.*", "src/Editeur.*", "src/Equation.*", "src/Fl_Gl_Choice.H",
+    "src/Flv_*", "src/Flve_*", "src/Graph.*", "src/Graph3d.*", "src/Help1.*",
+    "src/History.*", "src/Input.*", "src/Print.*", "src/Python.*",
+    "src/Tableur.*", "src/Xcas1.*", "src/gl2ps.*", "src/hist.*",
+    "src/xcas.cxx", "/xcas.*", "/xcas64.nsi", "/xcaswin.nsi",
+    "/fltk-1.3.8-source.tar.bz2", "/fltk.1.1.changes", "/giac_fltk_changes",
+    "debian/xcas.1",
+    # Autotools build: replaced by Meson
+    "Makefile.am", "Makefile.in", "/configure", "/configure.ac",
+    "/configure.mingw", "/aclocal.m4", "/acinclude.m4", "/config.h.*",
+    "/config.guess", "/config.sub", "/mkinstalldirs", "/path.h.in",
+    "/ABOUT-NLS", "m4/", "config/", "intl/",
+    # Legacy platform scripts and packaging: replaced by the justfile, cross/
+    # files and the new debian/ packaging
+    "/mk*", "/ckbuild*", "/build_for_iphoneos", "/compile.android",
+    "/archive.mingw", "/build_tarballs.jl", "/changeversion", "/compte",
+    "/inst", "/setup", "/win", "/win64", "/win2unix.cc", "/path.iphone",
+    "/path.mingw", "/simupath.iphone", "/giac.specs*", "/Init.scm",
+    "/addu.cc", "/pariinl.h", "debianold/", "debian/compat",
+    "debian/giac.mime", "debian/giac.sharedmimeinfo", "debian/menu",
+    "debian/pgiac.1",
+    # Plain-text docs: converted to Markdown (README.md, AUTHORS.md, ...)
+    "/README", "/README.MACOSX", "/README.hevea2mml", "/README.itex2MML",
+    "/README.mingw", "/README.visualcpp", "/NEWS", "/INSTALL", "/INSTALACION",
+    "/ChangeLog", "/AUTHORS", "/TODO", "/TROUBLES", "/LEAME.*", "/LISEZMOI.*",
+    "/java.README", "src/README.*",
+]
 
 [giac.areas]
 build = [
@@ -66,29 +112,3 @@ docs = [
     "INSTALL*", "INSTALACION", "LEAME*", "LISEZMOI*", "TODO", "TROUBLES",
     "*.html", "*.tex",
 ]
-
-# TODO(xcas): s-celles/xcas (https://github.com/s-celles/xcas) also uses the
-# main/dev convention, but its upstream is not a separate release: its dev
-# branch holds the FLTK GUI files extracted from the giac tarball itself
-# (src/{Cfg,Editeur,Equation,Graph,Graph3d,Help1,History,Input,Print,Python,
-# Tableur,Xcas1}.{cc,h}, src/Flv_*/Flve_*, src/gl2ps.*, src/hist.*,
-# src/xcas.cxx, xcas.desktop, xcas.xpm, xcas.html, xcas.metainfo.xml,
-# xcas*.nsi, po/), see giac's dev commit 317be52, while its main branch only
-# holds a README. https://xcas.univ-grenoble-alpes.fr/ publishes installers;
-# its only source link is giac_stable.tgz in the giac directory above, i.e.
-# the giac source tarball. So the upstream of xcas is the giac release
-# tarball (same versions as [giac]). Importing it needs a decision on what
-# main should contain (the whole giac tarball, or only the GUI subset, which
-# would need an "include_paths" option) before it can be configured:
-#
-# [xcas]
-# repo = "s-celles/xcas"
-# upstream_branch = "main"
-# fork_branch = "dev"
-# index_url = "https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/"
-# release_regex = '^giac-(\d+\.\d+\.\d+)\.tar\.gz$'
-# release_file = "giac-{version}.tar.gz"
-# checksum_file = "md5sum.txt"
-# checksum_algorithm = "md5"
-# keep_paths = ["README.md"]
-# export_paths = ["src/"]
