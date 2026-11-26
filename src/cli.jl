@@ -6,13 +6,21 @@ commands:
       List the upstream releases, the latest one and the latest imported one
       (upstream/X.Y.Z tags, read with git ls-remote from GitHub or --repo).
       Exit status: 0 up to date, 10 new release available, 1 error.
-  import NAME X.Y.Z --repo PATH [--force] [--offline]
+  import NAME X.Y.Z --repo PATH [--force] [--offline] [--allow-stale]
       Download (cached) and verify the release tarball, commit its content on
-      a new branch upstream-import/X.Y.Z from the upstream branch and tag it
-      upstream/X.Y.Z. Never pushes.
-  merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force]
+      a new branch upstream-import/X.Y.Z from the upstream branch. Does not
+      tag, never pushes.
+  tag NAME X.Y.Z --repo PATH [--force] [--offline]
+      After the import pull request is merged (any method): fetch the
+      upstream branch and create the annotated tag upstream/X.Y.Z on its
+      commit with the import's tree. Never pushes.
+  merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force] [--allow-stale]
+             [--resolve-expected [--worktree DIR]]
       On a new branch sync/X.Y.Z from the fork branch, try merging
-      upstream-import/X.Y.Z, write a Markdown report, abort the merge.
+      upstream-import/X.Y.Z, write a Markdown report (expected conflicts on
+      fork_excluded_paths apart from real ones), abort the merge. With
+      --resolve-expected, leave the merge in progress in a worktree
+      (default <repo>-sync-X.Y.Z) with the expected conflicts resolved.
   export NAME --repo PATH [--output FILE]
       List our commits touching the upstream sources, with GitHub links, as
       Markdown.
@@ -23,13 +31,17 @@ options:
   --repo PATH      local clone of the fork (check: also a URL)
   --output FILE    where to write the Markdown report
   --force          replace existing branches/tags created by a previous run
-  --offline        import from the download cache only
+  --offline        import: download cache only; tag: do not fetch
+  --allow-stale    use a local branch that differs from origin's
+  --resolve-expected  merge-plan: keep the merge, git rm expected conflicts
+  --worktree DIR   merge-plan --resolve-expected: where to keep the merge
   --github-output  check: append new_releases=... to \$GITHUB_OUTPUT
   -h, --help       show this help
 """
 
-const VALUE_OPTIONS = ("--config", "--cache", "--repo", "--output")
-const FLAG_OPTIONS = ("--force", "--offline", "--github-output", "--help", "-h")
+const VALUE_OPTIONS = ("--config", "--cache", "--repo", "--output", "--worktree")
+const FLAG_OPTIONS = ("--force", "--offline", "--github-output", "--allow-stale",
+    "--resolve-expected", "--help", "-h")
 
 function parse_cli(args::AbstractVector{<:AbstractString})
     opts = Dict{String, Any}()
@@ -99,6 +111,7 @@ function main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = stdout)
         cache = abspath(get(opts, "--cache", cache_dir()))
         repo = get(opts, "--repo", nothing)
         force = get(opts, "--force", false)
+        allow_stale = get(opts, "--allow-stale", false)
         cmd = pos[1]
         if cmd == "check"
             return cmd_check(cfg, opts, pos, io)
@@ -106,12 +119,19 @@ function main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = stdout)
             nargs(pos, 3, "import NAME X.Y.Z --repo PATH")
             v = parse_version(pos[3])
             import_release(get_upstream(cfg, pos[2]), v; repo, cache, io, force,
+                allow_stale, offline = get(opts, "--offline", false))
+        elseif cmd == "tag"
+            nargs(pos, 3, "tag NAME X.Y.Z --repo PATH")
+            v = parse_version(pos[3])
+            tag_release(get_upstream(cfg, pos[2]), v; repo, io, force,
                 offline = get(opts, "--offline", false))
         elseif cmd == "merge-plan"
             nargs(pos, 3, "merge-plan NAME X.Y.Z --repo PATH")
             v = parse_version(pos[3])
             merge_plan(get_upstream(cfg, pos[2]), v; repo, cache, io, force,
-                output = get(opts, "--output", nothing))
+                allow_stale, output = get(opts, "--output", nothing),
+                resolve_expected = get(opts, "--resolve-expected", false),
+                worktree = get(opts, "--worktree", nothing))
         elseif cmd == "export"
             nargs(pos, 2, "export NAME --repo PATH")
             out = get(opts, "--output", nothing)

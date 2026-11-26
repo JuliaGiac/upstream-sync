@@ -68,7 +68,10 @@ jobs:
               echo
               echo '```sh'
               echo "julia --project=. bin/upstream-sync.jl import $name $version --repo <clone of the fork>"
-              echo "julia --project=. bin/upstream-sync.jl merge-plan $name $version --repo <clone of the fork>"
+              echo "# push upstream-import/$version, open the pull request to main, merge it (any method)"
+              echo "julia --project=. bin/upstream-sync.jl tag $name $version --repo <clone of the fork>"
+              echo "git -C <clone of the fork> push origin upstream/$version"
+              echo "julia --project=. bin/upstream-sync.jl merge-plan $name $version --repo <clone of the fork> --resolve-expected"
               echo '```'
               echo
               echo "Detected by $RUN_URL"

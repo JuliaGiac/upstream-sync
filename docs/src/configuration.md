@@ -18,6 +18,7 @@ keep_paths = [".github/"]
 export_paths = ["src/", "check/"]
 export_exclude = ["**/meson.build"]
 export_modified_only = true
+fork_excluded_paths = ["micropython-1.12/", "src/hist.*", "/configure", "..."]
 
 [giac.areas]
 build = ["meson.build", "configure.ac", "m4/", "..."]
@@ -43,13 +44,27 @@ docs = ["doc/", "*.md", "..."]
 | `export_paths` | | `[]` | git pathspecs of the upstream sources whose changes are "our fixes" |
 | `export_exclude` | | `[]` | git glob pathspecs removed from `export_paths` |
 | `export_modified_only` | | `true` | only count modifications of files that exist upstream, not files we added or deleted |
+| `fork_excluded_paths` | | `[]` | upstream files the fork branch intentionally does not carry; `merge-plan` reports a "deleted by us" conflict on them as expected (keep the deletion) rather than as a real conflict |
 | `areas.build`, `areas.src`, `areas.docs` | | `[]` | patterns grouping merge-plan files; first match wins in the order build, src, docs; anything else is "other" |
 
-Area patterns: `dir/` matches everything below `dir/`; a pattern containing
-`/` is a glob on the whole path; a pattern without `/` (`meson.build`,
-`*.md`) matches the file name at any depth; `*`, `?` and `**` are globs.
+Patterns (`areas`, `fork_excluded_paths`): `dir/` matches everything below
+`dir/`; a pattern containing `/` is a glob on the whole path; a pattern
+without `/` (`meson.build`, `*.md`) matches the file name at any depth; a
+leading `/` anchors the pattern at the root (`/configure` is only the
+top-level `configure`, `/mk*` matches `mkosx` but not `src/mkfoo`); `*`, `?`
+and `**` are globs.
+
+For giac, `fork_excluded_paths` lists what `dev` removed from the upstream
+tree on purpose: `micropython-1.12/` (a submodule `micropython/` on `dev`),
+the Xcas FLTK GUI sources (moved to s-celles/xcas, a submodule), the
+autotools build replaced by Meson, legacy platform scripts and packaging,
+and the plain-text docs converted to Markdown. MicroPython and Xcas are not
+synced with upstream: Giac.jl only needs libgiac.
 
 Branches are looked up as local branches first, then as `origin/<branch>`.
+`import` (upstream branch) and `merge-plan` (fork branch) compare that ref
+with the branch on `origin` (`git ls-remote origin`) and refuse a stale one
+unless `--allow-stale`; without an `origin` remote only a note is printed.
 
 ## Environment
 

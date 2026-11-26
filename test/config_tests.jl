@@ -19,6 +19,19 @@
     @test UpstreamSync.import_branch(g, v"2.1.0") == "upstream-import/2.1.0"
     @test UpstreamSync.sync_branch(g, v"2.1.0") == "sync/2.1.0"
     @test UpstreamSync.repo_url(g) == "https://github.com/JuliaGiac/giac"
+    # only giac is configured: xcas and micropython are submodules of dev
+    @test collect(keys(cfg)) == ["giac"]
+    # files dev intentionally does not carry from upstream
+    ex(p) = UpstreamSync.fork_excluded(g, p)
+    @test ex("micropython-1.12/py/Makefile")
+    @test ex("src/hist.cxx") && ex("src/gl2ps.c") && ex("src/Flv_List.cc")
+    @test ex("configure") && ex("configure.ac") && ex("config/ltmain.sh")
+    @test ex("src/Makefile.am") && ex("doc/fr/Makefile.in")
+    @test ex("debianold/rules") && ex("mkosx") && ex("README.visualcpp")
+    for kept in ("src/gen.cc", "src/series.cc", "check/geo.out", "README.md",
+        "meson.build", "debian/control", "doc/fr/cascmd_fr.tex", "src/giac.h")
+        @test !ex(kept)
+    end
 end
 
 @testitem "config errors are reported" begin
@@ -38,6 +51,7 @@ end
     x = UpstreamSync.load_config(p)["x"]
     @test x.upstream_branch == "main" && x.fork_branch == "dev"  # defaults
     @test isempty(x.keep_paths)
+    @test isempty(x.fork_excluded_paths)
     @test x.checksum_algorithm == "sha256"
     @test_throws UpstreamSync.UpstreamSyncError UpstreamSync.get_upstream(
         Dict("x" => x), "nope")

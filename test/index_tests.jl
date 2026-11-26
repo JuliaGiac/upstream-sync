@@ -69,6 +69,13 @@ end
     @test !m("doc/*.tex", "doc/fr/a.tex")
     @test m("config.h*", "config.h.in")
     @test m(".github/", ".github/workflows/ci.yml")
+    # a leading "/" anchors the pattern at the root of the tree
+    @test m("/configure", "configure")
+    @test !m("/configure", "src/configure")
+    @test m("/mk*", "mkosx")
+    @test !m("/mk*", "src/mkfoo")
+    @test m("/doc/", "doc/fr/a.tex")
+    @test !m("/doc/", "src/doc/a.tex")
 
     areas = Dict("build" => ["meson.build", "configure.ac"], "src" => ["src/"],
         "docs" => ["doc/", "*.md"])

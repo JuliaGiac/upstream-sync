@@ -52,10 +52,16 @@ Match a repository path against a pattern:
 - `dir/` (trailing slash) matches everything below `dir/`;
 - a pattern containing `/` is a glob on the whole path (`*`, `?`, `**`);
 - a pattern without `/` is a glob on the file name (`meson.build`,
-  `*.md`), at any depth.
+  `*.md`), at any depth;
+- a leading `/` anchors the pattern at the root (`/configure` matches
+  `configure` only, `/mk*` matches `mkosx` but not `src/mkfoo`).
 """
 function pathmatch(pattern::AbstractString, path::AbstractString)
-    if endswith(pattern, "/")
+    if startswith(pattern, "/")
+        p = pattern[2:end]
+        tail = endswith(p, "/") ? "" : "\$"
+        return occursin(Regex("^" * glob_regex(p) * tail), path)
+    elseif endswith(pattern, "/")
         return occursin(Regex("^" * glob_regex(pattern)), path)
     elseif occursin('/', pattern)
         return occursin(Regex("^" * glob_regex(pattern) * "\$"), path)

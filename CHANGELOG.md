@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `import` and `merge-plan` refuse to work from a local upstream (resp.
+  fork) branch that differs from the same branch on `origin` (read with
+  `git ls-remote`), with the command to update it; `--allow-stale`
+  overrides.
+- `fork_excluded_paths`: upstream files the fork branch intentionally does
+  not carry. `merge-plan` reports "deleted by us" conflicts on them as
+  expected conflicts, separately from the real ones.
+- `merge-plan --resolve-expected [--worktree DIR]`: leaves the merge in
+  progress in a worktree of `sync/X.Y.Z` (default `<repo>-sync-X.Y.Z`) with
+  the expected conflicts resolved by `git rm`; nothing is committed.
+- Path patterns accept a leading `/` to anchor at the root of the tree.
+- `tag NAME X.Y.Z --repo PATH`: after the import pull request is merged
+  with any method (merge commit, squash, rebase), fetches the upstream
+  branch, finds the commit with the import's tree and creates the annotated
+  tag `upstream/X.Y.Z` on it; refuses when nothing matches or when the tag
+  exists on another commit (`--force`); never pushes.
+- Import commits record their tree hash (`Tree: <hash>`), so `tag` works
+  after the import branch is deleted.
+- `merge-plan` falls back to the `upstream/X.Y.Z` tag when the import
+  branch no longer exists.
+
+### Changed
+
+- `import` no longer creates the `upstream/X.Y.Z` tag: a squash or rebase
+  merge of the import pull request rewrites the commit, so tagging is done
+  afterwards by `tag`. The printed next steps and the release procedure
+  are updated accordingly.
+- giac: `fork_excluded_paths` lists `micropython-1.12/`, the Xcas GUI
+  sources, the autotools build, legacy scripts and plain-text docs removed
+  on `dev`. For 2.1.0 this leaves 1 real conflict (`check/geo.out`) out of
+  117.
+
+### Removed
+
+- The xcas TODO in `upstreams.toml`: MicroPython and Xcas are submodules of
+  the giac fork's `dev` and are not synced with upstream.
+
 ## [0.1.0] - 2026-11-26
 
 ### Added

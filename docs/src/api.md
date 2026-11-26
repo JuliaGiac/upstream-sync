@@ -11,6 +11,7 @@ UpstreamSync.main
 UpstreamSync.ExitCode
 check
 import_release
+tag_release
 merge_plan
 export_changes
 ```
@@ -20,6 +21,7 @@ export_changes
 ```@docs
 UpstreamSync.CheckResult
 UpstreamSync.ImportResult
+UpstreamSync.TagResult
 UpstreamSync.MergePlan
 UpstreamSync.FileChange
 UpstreamSync.Conflict
@@ -34,6 +36,7 @@ UpstreamSync.Upstream
 UpstreamSync.load_config
 UpstreamSync.default_config_path
 UpstreamSync.get_upstream
+UpstreamSync.fork_excluded
 UpstreamSync.cache_dir
 ```
 
@@ -56,6 +59,7 @@ UpstreamSync.fetch_release
 UpstreamSync.extract_tarball
 UpstreamSync.tarball_executables
 UpstreamSync.build_tree
+UpstreamSync.tag_message
 UpstreamSync.export_pathspecs
 UpstreamSync.Area
 UpstreamSync.area_title
@@ -64,6 +68,9 @@ UpstreamSync.classify
 UpstreamSync.run_git
 UpstreamSync.git
 UpstreamSync.resolve_branch
+UpstreamSync.check_not_stale
+UpstreamSync.try_merge
+UpstreamSync.default_sync_worktree
 ```
 
 ## Errors
