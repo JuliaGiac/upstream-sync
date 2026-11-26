@@ -126,6 +126,13 @@ worktree), aborts the merge, and writes a Markdown report
   `fork_excluded_paths` (files `dev` intentionally does not carry, such as
   `micropython-1.12/`, the Xcas GUI sources and the autotools build), to be
   resolved by keeping the deletion;
+- the **excluded additions**: files upstream added under
+  `fork_excluded_paths`. `git merge` adds them to `dev` without a conflict
+  (2.1.0 brought back ten `micropython-1.12/` files this way), so they are
+  listed apart, to be removed;
+- the **new upstream files** outside `fork_excluded_paths`: they merge
+  cleanly, but the Meson build may need to list them (2.1.0 added
+  `src/proba.cc` and its test);
 - the **real conflicts** grouped by area: Meson/build, src fixes, docs,
   other (areas are configured in `upstreams.toml`), with their kind
   ("both modified", "deleted by us", ...).
@@ -135,8 +142,8 @@ Like `import`, it refuses a local `dev` that differs from `origin`'s unless
 
 With `--resolve-expected`, the merge is not aborted: it is left in progress
 in a worktree of `sync/X.Y.Z` (default: `<repo>-sync-X.Y.Z` next to the
-clone, or `--worktree DIR`), with the expected conflicts resolved by
-`git rm` and the real ones still marked. Nothing is committed: finish the
+clone, or `--worktree DIR`), with the expected conflicts and the excluded
+additions removed by `git rm` and the real conflicts still marked. Nothing is committed: finish the
 merge there, then `git worktree remove` it.
 
 ### `export NAME --repo PATH [--output FILE]`
@@ -190,12 +197,14 @@ X.Y.Z" in this repository. Then, for giac X.Y.Z:
    julia --project=. bin/upstream-sync.jl merge-plan giac X.Y.Z --repo ../giac \
      --resolve-expected
    ```
-   Read `merge-plan-giac-X.Y.Z.md`: expected and real conflicts, upstream
-   changes on files we patched. A "deleted by us" real conflict is a file
+   Read `merge-plan-giac-X.Y.Z.md`: expected and real conflicts, excluded
+   additions, upstream changes on files we patched, and the new upstream
+   files (add new sources and tests to the Meson build). A "deleted by us" real conflict is a file
    `dev` removed outside `fork_excluded_paths`: keep the deletion or restore
    the file, and update `fork_excluded_paths` if the removal is intended.
 6. **Merge into dev**: in the worktree `../giac-sync-X.Y.Z` (branch
-   `sync/X.Y.Z`, merge in progress, expected conflicts already resolved),
+   `sync/X.Y.Z`, merge in progress, expected conflicts and excluded
+   additions already removed),
    resolve the real conflicts, bump the version in `meson.build`, run the
    tests, `git commit`, push `sync/X.Y.Z` and open a pull request to `dev`.
    Then `git -C ../giac worktree remove ../giac-sync-X.Y.Z`.

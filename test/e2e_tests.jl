@@ -90,6 +90,12 @@
         @test [c.path for c in plan.expected] == ["configure.ac"]
         @test plan.expected[1].area == Area.BUILD
         @test plan.expected[1].status == "deleted by us"
+        # added upstream under fork_excluded_paths: merged without a conflict,
+        # so reported apart and to be removed
+        @test plan.excluded_additions == ["m4/new.m4"]
+        # added upstream elsewhere: listed, the fork's build may need them
+        @test "src/c.cc" in plan.new_files
+        @test "m4/new.m4" ∉ plan.new_files
         @test plan.worktree === nothing
         @test Set(plan.overlap) ==
               Set(["src/a.cc", "doc/manual.txt", "configure.ac", "README"])
@@ -104,6 +110,12 @@
         @test occursin("2 both modified, 1 deleted by us", report)
         @test occursin("## Expected conflicts (1)", report)
         @test occursin("## Conflicts (3)", report)
+        @test occursin("## Excluded additions (1)", report)
+        add_section = split(split(report, "## Excluded additions")[2], "\n## ")[1]
+        @test occursin("`m4/new.m4`", add_section)
+        new_section = split(split(report, "## New upstream files")[2], "\n## ")[1]
+        @test occursin("`src/c.cc`", new_section)
+        @test !occursin("`m4/new.m4`", new_section)
         exp_section = split(split(report, "## Expected conflicts")[2], "\n## ")[1]
         @test occursin("`configure.ac`", exp_section)
         @test !occursin("`README`", exp_section)
@@ -297,6 +309,9 @@ end
         # expected conflicts resolved by keeping the deletion
         @test !isfile(joinpath(wt, "configure.ac"))
         @test !occursin("configure.ac", S.gitout(wt, "ls-files"))
+        # excluded additions removed too
+        @test !isfile(joinpath(wt, "m4", "new.m4"))
+        @test !occursin("m4/new.m4", S.gitout(wt, "ls-files"))
         # real conflicts still marked
         unmerged = Set(split(S.gitout(wt, "diff", "--name-only", "--diff-filter=U"), '\n'))
         @test unmerged == Set(["src/a.cc", "doc/manual.txt", "README"])

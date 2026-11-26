@@ -31,7 +31,10 @@ Outcome of [`merge_plan`](@ref). `changes` are the upstream file changes,
 `overlap` the upstream-changed files that the fork also modified,
 `conflicts` the real conflicts left by `git merge`, `expected` the
 "deleted by us" conflicts on `fork_excluded_paths` (resolved by keeping the
-deletion), `worktree` the directory holding the merge in progress (with
+deletion), `excluded_additions` the files upstream added under
+`fork_excluded_paths` (git merges them without a conflict; they are removed
+like the expected conflicts), `new_files` the other files upstream added
+(the fork's build may need to list them), `worktree` the directory holding the merge in progress (with
 `resolve_expected`, else `nothing`), `markdown` the report.
 """
 struct MergePlan
@@ -48,6 +51,8 @@ struct MergePlan
     overlap::Vector{String}
     conflicts::Vector{Conflict}
     expected::Vector{Conflict}
+    excluded_additions::Vector{String}
+    new_files::Vector{String}
     worktree::Union{Nothing, String}
     upstream_files_changed::Int
     lines_added::Int
@@ -97,9 +102,13 @@ and return the conflicted paths with their porcelain codes. Without `keep`
 the merge is aborted and the worktree removed. With `keep`, the paths
 returned by `resolve(conflicts)` are `git rm`-ed and the worktree is left
 with the merge in progress.
+
+Returns `(conflicts, added)`, `added` being the paths the merge adds to
+`sync` without a conflict. With `keep`, the paths returned by
+`resolve(conflicts, added)` are `git rm`-ed.
 """
 function try_merge(repo, sync, import_ref, wt; keep::Bool = false,
-        resolve = raw -> String[])
+        resolve = (raw, added) -> String[])
     git(repo, "worktree", "add", "--quiet", wt, sync)
     ok = false
     try
@@ -111,13 +120,16 @@ function try_merge(repo, sync, import_ref, wt; keep::Bool = false,
         if r.code != 0 && isempty(conflicts) && !merging
             throw(UpstreamSyncError("git merge failed:\n$(strip(r.err))\n$(strip(r.out))"))
         end
+        added = nulsplit(git(wt, "diff", "--cached", "--no-renames", "--name-only",
+            "--diff-filter=A", "-z", "HEAD"))
         if keep
-            paths = resolve(conflicts)
+            paths = resolve(conflicts, added)
             for chunk in Iterators.partition(paths, 500)
-                git(wt, "rm", "-q", "--", chunk...)
+                # -f: an excluded addition is staged by the merge
+                git(wt, "rm", "-q", "-f", "--", chunk...)
             end
             ok = true
-            return conflicts
+            return conflicts, added
         end
         # Abort. In-tree .gitattributes (eol=...) can make pristine files look
         # modified, so `merge --abort` may refuse; the worktree is thrown
@@ -125,7 +137,7 @@ function try_merge(repo, sync, import_ref, wt; keep::Bool = false,
         if merging && run_git(["merge", "--abort"]; dir = wt).code != 0
             run_git(["reset", "--hard", "--quiet"]; dir = wt)
         end
-        return conflicts
+        return conflicts, added
     finally
         if !ok
             run_git(["worktree", "remove", "--force", wt]; dir = repo)
@@ -211,6 +223,20 @@ function render_plan(io::IO, u::Upstream, p::MergePlan)
             println(io, "\n</details>\n")
         end
     end
+    println(io, "## Excluded additions ($(length(p.excluded_additions)))\n")
+    if isempty(p.excluded_additions)
+        println(io, "None.\n")
+    else
+        println(io, "Files upstream added under `fork_excluded_paths`. `git merge` adds ",
+            "them to the fork without a conflict: remove them (`git rm`)",
+            p.worktree === nothing ? ", or automatically with `--resolve-expected`" :
+            " (done in the worktree)", ".\n")
+        println(io, "<details><summary>Files ($(length(p.excluded_additions)))</summary>\n")
+        for f in p.excluded_additions
+            println(io, "- `$f`")
+        end
+        println(io, "\n</details>\n")
+    end
     println(io, "## Conflicts ($(length(p.conflicts)))\n")
     if !isempty(p.conflicts)
         statuses = sort!(unique(c.status for c in p.conflicts))
@@ -236,13 +262,26 @@ function render_plan(io::IO, u::Upstream, p::MergePlan)
         println(io)
     end
 
+    println(io, "## New upstream files ($(length(p.new_files)))\n")
+    if isempty(p.new_files)
+        println(io, "None.\n")
+    else
+        println(io, "Files upstream added outside `fork_excluded_paths`. They merge ",
+            "cleanly, but the fork's build may need to list them (a new source ",
+            "file in `meson.build`, a new test).\n")
+        for f in p.new_files
+            println(io, "- `$f` ($(area_title(classify(f, u.areas))))")
+        end
+        println(io)
+    end
     println(io, "## Next steps\n")
     println(io, """
     1. Make sure `$(p.import_branch)` is merged into `$(u.upstream_branch)` and
        the tag `$(u.tag_prefix)$v` is pushed.
     2. $(p.worktree === nothing ?
         "`git switch $(p.sync_branch) && git merge $(p.import_branch)` (or " *
-        "`$(u.upstream_branch)`), `git rm` the expected conflicts," :
+        "`$(u.upstream_branch)`), `git rm` the expected conflicts and the " *
+        "excluded additions," :
         "in `$(p.worktree)`:") resolve the real conflicts, run the tests,
        `git commit`.
     3. Push `$(p.sync_branch)` and open a pull request to `$(p.fork_branch)`.
@@ -270,7 +309,9 @@ and write a Markdown report to `output` (default
 `merge-plan-<name>-X.Y.Z.md` in the current directory).
 
 "Deleted by us" conflicts on `fork_excluded_paths` are reported as
-expected, apart from the real conflicts. With `resolve_expected`, the merge
+expected, apart from the real conflicts, and so are the files upstream added
+under `fork_excluded_paths` (merged without a conflict). Files added
+elsewhere are listed, for the fork's build. With `resolve_expected`, the merge
 is not aborted: it is left in progress in `worktree` (default
 [`default_sync_worktree`](@ref)) with the expected conflicts resolved by
 `git rm` and the real ones still marked. Nothing is committed or pushed.
@@ -319,8 +360,9 @@ function merge_plan(u::Upstream, v::VersionNumber; repo,
     overlap = sort!([c.path for c in changes if c.path in ours])
     println(io, "trial merge of $imp into $sync ...")
     is_expected((p, c)) = c == "DU" && fork_excluded(u, p)
-    resolve(raw) = [p for (p, c) in raw if is_expected((p, c))]
-    raw = if wt_keep === nothing
+    resolve(raw, added) = [[p for (p, c) in raw if is_expected((p, c))];
+        [p for p in added if fork_excluded(u, p)]]
+    raw, merged_in = if wt_keep === nothing
         workroot = joinpath(cache, "work")
         mkpath(workroot)
         tmp = mktempdir(workroot; prefix = "merge-plan-", cleanup = false)
@@ -338,11 +380,13 @@ function merge_plan(u::Upstream, v::VersionNumber; repo,
         by = c -> c.path)
     expected = sort!([mk(p, c) for (p, c) in raw if is_expected((p, c))];
         by = c -> c.path)
+    excluded_additions = sort!([p for p in merged_in if fork_excluded(u, p)])
+    new_files = sort!([c.path for c in changes if c.status == "A" && !fork_excluded(u, c.path)])
     added = sum((max(c.added, 0) for c in changes); init = 0)
     deleted = sum((max(c.deleted, 0) for c in changes); init = 0)
     plan = MergePlan(u.name, v, u.fork_branch, fork_sha, imp, import_sha,
         previous_sha, base_sha, sync, changes, overlap, conflicts, expected,
-        wt_keep, length(changes), added, deleted, "")
+        excluded_additions, new_files, wt_keep, length(changes), added, deleted, "")
     md = sprint(render_plan, u, plan)
     plan = MergePlan(ntuple(i -> getfield(plan, i), fieldcount(MergePlan) - 1)..., md)
     out = output === nothing ? "merge-plan-$(u.name)-$v.md" : output
@@ -350,9 +394,9 @@ function merge_plan(u::Upstream, v::VersionNumber; repo,
     println(io, "$(length(changes)) upstream files changed (+$added/-$deleted), ",
         "$(length(overlap)) also modified on $(u.fork_branch), ",
         "$(length(conflicts)) real conflict(s), $(length(expected)) expected ",
-        "(fork_excluded_paths)")
+        "and $(length(excluded_additions)) added under fork_excluded_paths")
     wt_keep === nothing || println(io, "merge left in progress in $wt_keep ",
-        "(expected conflicts resolved, nothing committed)")
+        "(expected conflicts and excluded additions removed, nothing committed)")
     println(io, "report written to $out")
     return plan
 end

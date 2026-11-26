@@ -31,12 +31,14 @@ X.Y.Z" in this repository. Then, for giac X.Y.Z:
    julia --project=. bin/upstream-sync.jl merge-plan giac X.Y.Z --repo ../giac \
      --resolve-expected
    ```
-   Read `merge-plan-giac-X.Y.Z.md`: expected and real conflicts, upstream
-   changes on files we patched. A "deleted by us" real conflict is a file
+   Read `merge-plan-giac-X.Y.Z.md`: expected and real conflicts, excluded
+   additions, upstream changes on files we patched, and the new upstream
+   files (add new sources and tests to the Meson build). A "deleted by us" real conflict is a file
    `dev` removed outside `fork_excluded_paths`: keep the deletion or restore
    the file, and update `fork_excluded_paths` if the removal is intended.
 6. **Merge into dev**: in the worktree `../giac-sync-X.Y.Z` (branch
-   `sync/X.Y.Z`, merge in progress, expected conflicts already resolved),
+   `sync/X.Y.Z`, merge in progress, expected conflicts and excluded
+   additions already removed),
    resolve the real conflicts, bump the version in `meson.build`, run the
    tests, `git commit`, push `sync/X.Y.Z` and open a pull request to `dev`.
    Then `git -C ../giac worktree remove ../giac-sync-X.Y.Z`.
