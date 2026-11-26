@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the import branch is deleted.
 - `merge-plan` falls back to the `upstream/X.Y.Z` tag when the import
   branch no longer exists.
+- `merge-plan` lists the files upstream added outside `fork_excluded_paths`
+  ("New upstream files"), which the fork's build may need to list.
+
+### Fixed
+
+- `merge-plan` missed the files upstream added under `fork_excluded_paths`:
+  `git merge` adds them without a conflict (2.1.0 brought ten
+  `micropython-1.12/` files back into `dev`). They are now reported as
+  "Excluded additions" and removed by `--resolve-expected`.
 
 ### Changed
 
