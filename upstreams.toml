@@ -1,0 +1,94 @@
+# Forks kept in sync with upstream release tarballs.
+#
+# One table per fork. Every fork follows the same convention:
+#   - upstream_branch (main): the pristine upstream tree, one commit per
+#     imported release, tagged <tag_prefix>X.Y.Z (upstream/X.Y.Z);
+#   - fork_branch (dev): our fork (build system, fixes, CI, site).
+#
+# Keys:
+#   repo                  GitHub repository of the fork (owner/name)
+#   upstream_branch       branch holding the pristine upstream tree
+#   fork_branch           branch holding the fork
+#   index_url             directory listing (HTML) where releases appear
+#   download_url          base URL of tarballs and checksum file
+#                         (default: index_url)
+#   release_regex         file names that are releases; capture group 1 is
+#                         the X.Y.Z version
+#   release_file          tarball name for a version ({version} = X.Y.Z)
+#   checksum_file         checksum list published next to the tarballs
+#   checksum_algorithm    md5, sha1, sha256 or sha512
+#   keep_paths            paths of the upstream branch that are ours and are
+#                         carried over by every import (trailing / = folder)
+#   export_paths          git pathspecs of upstream sources whose changes on
+#                         the fork branch are "our fixes" (export command)
+#   export_exclude        git glob pathspecs removed from export_paths
+#   export_modified_only  list only modifications of files that exist
+#                         upstream (not files we added or deleted)
+#   areas.build/src/docs  patterns grouping merge-plan conflicts; first
+#                         match wins in the order build, src, docs; the rest
+#                         is "other". "dir/" = everything below dir, a
+#                         pattern without "/" matches the file name at any
+#                         depth, "*", "?" and "**" are globs.
+
+[giac]
+description = "Giac computer algebra system (Bernard Parisse)"
+repo = "JuliaGiac/giac"
+upstream_branch = "main"
+fork_branch = "dev"
+index_url = "https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/"
+release_regex = '^giac-(\d+\.\d+\.\d+)\.tar\.gz$'
+release_file = "giac-{version}.tar.gz"
+checksum_file = "md5sum.txt"
+checksum_algorithm = "md5"
+# .github/ (Dependabot configuration of main) is ours, not upstream's.
+keep_paths = [".github/"]
+# Our fixes to upstream sources: the C++ sources (src/) and the reference
+# outputs of the upstream test suite (check/). Not exported: the Meson build
+# (meson.build files, meson_options.txt, cross/, subprojects/, scripts/),
+# our own tests (tests/), docs and site (*.md, site/), CI (.github/), the
+# Debian packaging (debian/) and the autotools/legacy files dev deletes
+# (configure*, Makefile.*, m4/, config/, intl/, doc/*/Makefile.*).
+export_paths = ["src/", "check/"]
+export_exclude = ["**/meson.build"]
+export_modified_only = true
+
+[giac.areas]
+build = [
+    "meson.build", "meson_options.txt", "meson.options", "justfile",
+    "Makefile.am", "Makefile.in", "configure", "configure.*", "config.h*",
+    "aclocal.m4", "acinclude.m4", "*.m4", "m4/", "config/", "cross/",
+    "subprojects/", "scripts/", "debian/", "debianold/", "intl/", ".github/",
+    ".gitignore", ".gitmodules",
+]
+src = ["src/"]
+docs = [
+    "doc/", "site/", "*.md", "README*", "NEWS", "ChangeLog", "AUTHORS",
+    "INSTALL*", "INSTALACION", "LEAME*", "LISEZMOI*", "TODO", "TROUBLES",
+    "*.html", "*.tex",
+]
+
+# TODO(xcas): s-celles/xcas (https://github.com/s-celles/xcas) also uses the
+# main/dev convention, but its upstream is not a separate release: its dev
+# branch holds the FLTK GUI files extracted from the giac tarball itself
+# (src/{Cfg,Editeur,Equation,Graph,Graph3d,Help1,History,Input,Print,Python,
+# Tableur,Xcas1}.{cc,h}, src/Flv_*/Flve_*, src/gl2ps.*, src/hist.*,
+# src/xcas.cxx, xcas.desktop, xcas.xpm, xcas.html, xcas.metainfo.xml,
+# xcas*.nsi, po/), see giac's dev commit 317be52, while its main branch only
+# holds a README. https://xcas.univ-grenoble-alpes.fr/ publishes installers;
+# its only source link is giac_stable.tgz in the giac directory above, i.e.
+# the giac source tarball. So the upstream of xcas is the giac release
+# tarball (same versions as [giac]). Importing it needs a decision on what
+# main should contain (the whole giac tarball, or only the GUI subset, which
+# would need an "include_paths" option) before it can be configured:
+#
+# [xcas]
+# repo = "s-celles/xcas"
+# upstream_branch = "main"
+# fork_branch = "dev"
+# index_url = "https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/"
+# release_regex = '^giac-(\d+\.\d+\.\d+)\.tar\.gz$'
+# release_file = "giac-{version}.tar.gz"
+# checksum_file = "md5sum.txt"
+# checksum_algorithm = "md5"
+# keep_paths = ["README.md"]
+# export_paths = ["src/"]
