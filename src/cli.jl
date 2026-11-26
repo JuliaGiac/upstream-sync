@@ -8,8 +8,12 @@ commands:
       Exit status: 0 up to date, 10 new release available, 1 error.
   import NAME X.Y.Z --repo PATH [--force] [--offline] [--allow-stale]
       Download (cached) and verify the release tarball, commit its content on
-      a new branch upstream-import/X.Y.Z from the upstream branch and tag it
-      upstream/X.Y.Z. Never pushes.
+      a new branch upstream-import/X.Y.Z from the upstream branch. Does not
+      tag, never pushes.
+  tag NAME X.Y.Z --repo PATH [--force] [--offline]
+      After the import pull request is merged (any method): fetch the
+      upstream branch and create the annotated tag upstream/X.Y.Z on its
+      commit with the import's tree. Never pushes.
   merge-plan NAME X.Y.Z --repo PATH [--output FILE] [--force] [--allow-stale]
              [--resolve-expected [--worktree DIR]]
       On a new branch sync/X.Y.Z from the fork branch, try merging
@@ -27,7 +31,7 @@ options:
   --repo PATH      local clone of the fork (check: also a URL)
   --output FILE    where to write the Markdown report
   --force          replace existing branches/tags created by a previous run
-  --offline        import from the download cache only
+  --offline        import: download cache only; tag: do not fetch
   --allow-stale    use a local branch that differs from origin's
   --resolve-expected  merge-plan: keep the merge, git rm expected conflicts
   --worktree DIR   merge-plan --resolve-expected: where to keep the merge
@@ -116,6 +120,11 @@ function main(args::AbstractVector{<:AbstractString} = ARGS; io::IO = stdout)
             v = parse_version(pos[3])
             import_release(get_upstream(cfg, pos[2]), v; repo, cache, io, force,
                 allow_stale, offline = get(opts, "--offline", false))
+        elseif cmd == "tag"
+            nargs(pos, 3, "tag NAME X.Y.Z --repo PATH")
+            v = parse_version(pos[3])
+            tag_release(get_upstream(cfg, pos[2]), v; repo, io, force,
+                offline = get(opts, "--offline", false))
         elseif cmd == "merge-plan"
             nargs(pos, 3, "merge-plan NAME X.Y.Z --repo PATH")
             v = parse_version(pos[3])

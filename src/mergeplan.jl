@@ -288,10 +288,18 @@ function merge_plan(u::Upstream, v::VersionNumber; repo,
     wt_keep !== nothing && ispath(wt_keep) && throw(UpstreamSyncError(
         "worktree directory $wt_keep already exists; remove it " *
         "(git -C $repo worktree remove $wt_keep) or pass --worktree DIR"))
+    # the import: its branch, or the upstream/X.Y.Z tag once it is merged
+    # and the branch deleted
     imp = import_branch(u, v)
-    ref_exists(repo, "refs/heads/" * imp) || throw(UpstreamSyncError(
-        "branch $imp not found in $repo: run `import $(u.name) $v` first"))
-    import_sha = git(repo, "rev-parse", "refs/heads/$imp^{commit}")
+    imp_ref = findfirst(r -> ref_exists(repo, r), ["refs/heads/$imp",
+        "refs/remotes/origin/$imp", "refs/tags/$(tag_name(u, v))"])
+    imp_ref === nothing && throw(UpstreamSyncError(
+        "neither branch $imp nor tag $(tag_name(u, v)) found in $repo: " *
+        "run `import $(u.name) $v` first"))
+    imp_ref = ["refs/heads/$imp", "refs/remotes/origin/$imp",
+        "refs/tags/$(tag_name(u, v))"][imp_ref]
+    import_sha = git(repo, "rev-parse", "$imp_ref^{commit}")
+    imp = replace(imp_ref, r"^refs/(heads|tags)/" => "")
     previous_sha = git(repo, "rev-parse", "$import_sha^1")
     fork_ref, fork_sha = resolve_branch(repo, u.fork_branch)
     check_not_stale(repo, u.fork_branch, fork_ref, fork_sha; allow_stale, io)
@@ -317,13 +325,13 @@ function merge_plan(u::Upstream, v::VersionNumber; repo,
         mkpath(workroot)
         tmp = mktempdir(workroot; prefix = "merge-plan-", cleanup = false)
         try
-            try_merge(repo, sync, imp, joinpath(tmp, "worktree"))
+            try_merge(repo, sync, import_sha, joinpath(tmp, "worktree"))
         finally
             rm(tmp; recursive = true, force = true)
         end
     else
         mkpath(dirname(wt_keep))
-        try_merge(repo, sync, imp, wt_keep; keep = true, resolve)
+        try_merge(repo, sync, import_sha, wt_keep; keep = true, resolve)
     end
     mk(p, c) = Conflict(p, CONFLICT_CODES[c], classify(p, u.areas))
     conflicts = sort!([mk(p, c) for (p, c) in raw if !is_expected((p, c))];

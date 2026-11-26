@@ -18,15 +18,15 @@
         imp = UpstreamSync.import_release(u, v"1.0.0"; repo, cache = sb.cache,
             io = quiet)
         @test imp.branch == "upstream-import/1.0.0"
-        @test imp.tag == "upstream/1.0.0"
         @test S.gitout(repo, "rev-parse", "upstream-import/1.0.0") == imp.commit
-        @test S.gitout(repo, "rev-parse", "upstream/1.0.0^{commit}") == imp.commit
-        @test S.gitout(repo, "cat-file", "-t", "upstream/1.0.0") == "tag"
+        # no tag yet: the tag is created by `tag` once the PR is merged
+        @test isempty(S.gitout(repo, "tag", "--list"))
         @test S.gitout(repo, "rev-parse", "$(imp.commit)^") ==
               S.gitout(repo, "rev-parse", "main")
         @test isempty(S.gitout(repo, "diff", "--name-only", "main", imp.commit))
         msg = S.gitout(repo, "log", "-1", "--format=%B", imp.commit)
         @test startswith(msg, "import upstream pkg 1.0.0")
+        @test occursin("Tree: " * S.gitout(repo, "rev-parse", "$(imp.commit)^{tree}"), msg)
         @test occursin("file://", msg) && occursin(imp.checksum, msg)
         @test endswith(strip(msg), "Assisted-by: AI")
         @test S.gitout(repo, "log", "-1", "--format=%an <%ae>", imp.commit) ==
@@ -38,8 +38,15 @@
         # importing twice is refused, --force replaces
         @test_throws UpstreamSync.UpstreamSyncError UpstreamSync.import_release(
             u, v"1.0.0"; repo, cache = sb.cache, io = quiet)
-        UpstreamSync.import_release(u, v"1.0.0"; repo, cache = sb.cache,
+        imp = UpstreamSync.import_release(u, v"1.0.0"; repo, cache = sb.cache,
             io = quiet, force = true)
+
+        # -- "merge" the PR (fast-forward) and tag; no origin: local main is used
+        S.git(repo, "branch", "-f", "main", imp.commit)
+        t = UpstreamSync.tag_release(u, v"1.0.0"; repo, io = quiet)
+        @test t.tag == "upstream/1.0.0" && t.commit == imp.commit
+        @test S.gitout(repo, "rev-parse", "upstream/1.0.0^{commit}") == imp.commit
+        @test S.gitout(repo, "cat-file", "-t", "upstream/1.0.0") == "tag"
 
         # -- check: 1.0.0 imported, 1.1.0 newer
         r = UpstreamSync.check(u; repo, io = quiet)
@@ -50,6 +57,11 @@
         imp2 = UpstreamSync.import_release(u, v"1.1.0"; repo, cache = sb.cache,
             io = quiet)
         c = imp2.commit
+        # merged with a merge commit: the import commit itself gets the tag
+        mc = S.gitout(repo, "commit-tree", "-p", "main", "-p", c, "-m", "Merge #2",
+            "$c^{tree}")
+        S.git(repo, "branch", "-f", "main", mc)
+        @test UpstreamSync.tag_release(u, v"1.1.0"; repo, io = quiet).commit == c
         files = split(S.gitout(repo, "ls-tree", "-r", "--name-only", c), '\n')
         @test "src/c.cc" in files
         @test ".github/dependabot.yml" in files              # kept path
@@ -163,6 +175,10 @@ end
         @test UpstreamSync.ExitCode.NEW_RELEASE == 10
         @test run_cli("check", "pkg", "--repo", sb.repo) == 10
         @test run_cli("import", "pkg", "1.1.0", "--repo", sb.repo) == 0
+        @test run_cli("check", "--repo", sb.repo) == 10        # not tagged yet
+        @test run_cli("tag", "pkg", "1.1.0", "--repo", sb.repo) == 1   # not merged
+        S.git(sb.repo, "branch", "-f", "main", "upstream-import/1.1.0")
+        @test run_cli("tag", "pkg", "1.1.0", "--repo", sb.repo) == 0
         @test run_cli("check", "--repo", sb.repo) == 0
         out = joinpath(sb.root, "plan.md")
         @test run_cli("merge-plan", "pkg", "1.1.0", "--repo", sb.repo,
@@ -301,5 +317,124 @@ end
             e
         end
         @test err isa UpstreamSync.UpstreamSyncError && occursin("already exists", err.msg)
+    end
+end
+
+@testitem "tag after squash, rebase and merge-commit merges" setup = [Synthetic] begin
+    S = Synthetic
+    q = IOBuffer()
+    S.isolated() do
+        # --- squash merge: a new commit on main with the import's tree
+        sb = S.sandbox()
+        S.make_site(sb.site; releases = ["1.0.0" => S.V100, "1.1.0" => S.V110,
+            "1.2.0" => merge(S.V110, Dict("src/c.cc" => "int c() { return 4; }\n"))])
+        u = UpstreamSync.load_config(sb.config)["pkg"]
+        repo = sb.repo
+        S.add_origin(sb.root, repo)
+        origin = joinpath(sb.root, "origin.git")
+        imp = UpstreamSync.import_release(u, v"1.1.0"; repo, cache = sb.cache, io = q)
+        tree = S.gitout(repo, "rev-parse", "$(imp.commit)^{tree}")
+        # not merged yet: no commit of origin/main has the import tree
+        err = try
+            UpstreamSync.tag_release(u, v"1.1.0"; repo, io = q)
+            nothing
+        catch e
+            e
+        end
+        @test err isa UpstreamSync.UpstreamSyncError && occursin("no commit", err.msg)
+        S.git(repo, "push", "-q", "origin", "upstream-import/1.1.0")
+        w = joinpath(mktempdir(), "w")
+        S.git(sb.root, "clone", "-q", "-b", "main", origin, w)
+        S.git(w, "config", "user.name", "GitHub")
+        S.git(w, "config", "user.email", "noreply@github.com")
+        msgfile = joinpath(sb.root, "squash-msg")
+        write(msgfile, replace(S.gitout(repo, "log", "-1", "--format=%B", imp.commit),
+            "import upstream pkg 1.1.0" => "import upstream pkg 1.1.0 (#15)"; count = 1))
+        S.git(w, "merge", "-q", "--squash", "origin/upstream-import/1.1.0")
+        S.git(w, "commit", "-q", "-F", msgfile)
+        squash = S.gitout(w, "rev-parse", "HEAD")
+        S.git(w, "push", "-q", "origin", "main")
+        @test squash != imp.commit
+        # a premature tag on the import commit is refused, then moved by force
+        S.git(repo, "tag", "-a", "-m", "early", "upstream/1.1.0", imp.commit)
+        err = try
+            UpstreamSync.tag_release(u, v"1.1.0"; repo, io = q)
+            nothing
+        catch e
+            e
+        end
+        @test err isa UpstreamSync.UpstreamSyncError && occursin("already exists", err.msg)
+        t = UpstreamSync.tag_release(u, v"1.1.0"; repo, io = q, force = true)
+        @test t.commit == squash
+        @test S.gitout(repo, "rev-parse", "upstream/1.1.0^{commit}") == squash
+        @test S.gitout(repo, "cat-file", "-t", "upstream/1.1.0") == "tag"
+        tagmsg = S.gitout(repo, "tag", "-l", "--format=%(contents)", "upstream/1.1.0")
+        @test occursin("Source: file://", tagmsg) && occursin(imp.checksum, tagmsg)
+        @test endswith(strip(tagmsg), "Assisted-by: AI")
+        # running it again is a no-op
+        @test UpstreamSync.tag_release(u, v"1.1.0"; repo, io = q).commit == squash
+        # the tag is never pushed
+        @test !occursin("upstream/1.1.0", S.gitout(origin, "tag", "--list"))
+
+        # the import branch deleted everywhere: the tree comes from the
+        # "Tree:" line of the squash commit message
+        S.git(repo, "tag", "-d", "upstream/1.1.0")
+        S.git(repo, "branch", "-D", "upstream-import/1.1.0")
+        S.git(repo, "push", "-q", "origin", "--delete", "upstream-import/1.1.0")
+        S.git(repo, "update-ref", "-d", "refs/remotes/origin/upstream-import/1.1.0")
+        t = UpstreamSync.tag_release(u, v"1.1.0"; repo, io = q)
+        @test t.commit == squash && t.tree == tree
+        # an older import message without a Tree: line: the squash commit
+        # carrying the import title gives its own tree
+        S.git(repo, "tag", "-d", "upstream/1.1.0")
+        S.git(w, "commit", "-q", "--amend", "-m",
+            replace(read(msgfile, String), r"^Tree: .*\n"m => ""))
+        squash = S.gitout(w, "rev-parse", "HEAD")
+        S.git(w, "push", "-q", "-f", "origin", "main")
+        t = UpstreamSync.tag_release(u, v"1.1.0"; repo, io = q)
+        @test t.commit == squash && t.tree == tree
+        # merge-plan works from the tag when the import branch is gone
+        plan = UpstreamSync.merge_plan(u, v"1.1.0"; repo, cache = sb.cache,
+            output = joinpath(sb.root, "p.md"), io = q)
+        @test plan.import_sha == squash
+
+        # --- rebase merge: the import commit rewritten on main
+        S.git(repo, "fetch", "-q", "origin", "main:main")
+        imp2 = UpstreamSync.import_release(u, v"1.2.0"; repo, cache = sb.cache, io = q)
+        S.git(repo, "push", "-q", "origin", "upstream-import/1.2.0")
+        S.git(w, "fetch", "-q", "origin")
+        S.git(w, "reset", "-q", "--hard", "origin/main")
+        S.git(w, "cherry-pick", "origin/upstream-import/1.2.0")
+        rebased = S.gitout(w, "rev-parse", "HEAD")
+        S.git(w, "push", "-q", "origin", "main")
+        @test rebased != imp2.commit
+        @test UpstreamSync.tag_release(u, v"1.2.0"; repo, io = q).commit == rebased
+        r = UpstreamSync.check(u; repo = origin, io = q)
+        @test r.imported === nothing          # tags are local until pushed
+        @test UpstreamSync.check(u; repo, io = q).imported == v"1.2.0"
+
+        # --- merge commit: the import commit itself is on main
+        sb = S.sandbox()
+        u = UpstreamSync.load_config(sb.config)["pkg"]
+        S.add_origin(sb.root, sb.repo)
+        origin = joinpath(sb.root, "origin.git")
+        imp = UpstreamSync.import_release(u, v"1.0.0"; repo = sb.repo,
+            cache = sb.cache, io = q)
+        S.git(sb.repo, "push", "-q", "origin", "upstream-import/1.0.0")
+        w = joinpath(mktempdir(), "w")
+        S.git(sb.root, "clone", "-q", "-b", "main", origin, w)
+        S.git(w, "config", "user.name", "GitHub")
+        S.git(w, "config", "user.email", "noreply@github.com")
+        S.git(w, "merge", "-q", "--no-ff", "-m", "Merge pull request #1",
+            "origin/upstream-import/1.0.0")
+        S.git(w, "push", "-q", "origin", "main")
+        t = UpstreamSync.tag_release(u, v"1.0.0"; repo = sb.repo, io = q)
+        @test t.commit == imp.commit
+        @test t.commit != S.gitout(w, "rev-parse", "HEAD")
+        # CLI
+        cli(args...) = UpstreamSync.main(["--config", sb.config, "--cache", sb.cache,
+                args...]; io = q)
+        @test cli("tag", "pkg", "1.0.0", "--repo", sb.repo) == 0       # already tagged
+        @test cli("tag", "pkg", "1.1.0", "--repo", sb.repo) == 1       # no import
     end
 end

@@ -18,6 +18,10 @@ check name="":
 import name version repo *flags:
     {{cli}} import {{name}} {{version}} --repo {{repo}} {{flags}}
 
+# Tag upstream/VERSION on the merged import commit of REPO (never pushes)
+tag name version repo *flags:
+    {{cli}} tag {{name}} {{version}} --repo {{repo}} {{flags}}
+
 # Trial-merge upstream-import/VERSION into the fork branch, write a report
 merge-plan name version repo *flags:
     {{cli}} merge-plan {{name}} {{version}} --repo {{repo}} {{flags}}

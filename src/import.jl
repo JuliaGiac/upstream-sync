@@ -1,10 +1,10 @@
 """
     ImportResult
 
-Outcome of [`import_release`](@ref): the new `commit`, its `branch` and
-annotated `tag`, the source `url` and `checksum`, the `parent` commit
-(the upstream branch), and the tarball paths `dropped` because they fall in
-a kept path.
+Outcome of [`import_release`](@ref): the new `commit` and its `branch`,
+the `tag` that [`tag_release`](@ref) will create once the pull request is
+merged, the source `url` and `checksum`, the `parent` commit (the upstream
+branch), and the tarball paths `dropped` because they fall in a kept path.
 """
 struct ImportResult
     name::String
@@ -130,7 +130,7 @@ function build_tree(repo, root, keep_paths, upstream_sha; executables = nothing)
     end
 end
 
-function import_message(u, v, src, extra)
+function import_message(u, v, src, tree, extra)
     algo = uppercase(u.checksum_algorithm)
     kept = isempty(u.keep_paths) ? "" :
            "\nKept from $(u.upstream_branch): $(join(u.keep_paths, ", "))"
@@ -139,6 +139,7 @@ function import_message(u, v, src, extra)
 
     Source: $(src.url)
     $algo: $(src.checksum)  $(src.filename)$kept
+    Tree: $tree
     $extra
     Assisted-by: AI
     """
@@ -152,9 +153,11 @@ Import an upstream release tarball into the local clone `repo`:
 download (cached) and verify it, then create the commit
 "import upstream <name> X.Y.Z" whose tree is the tarball's content (top
 directory stripped) plus the kept paths of the upstream branch, on the new
-branch `upstream-import/X.Y.Z` (parent: the upstream branch), and the
-annotated tag `upstream/X.Y.Z`. Author and committer are the local git
-identity. The working tree is not touched and nothing is pushed.
+branch `upstream-import/X.Y.Z` (parent: the upstream branch). The body
+records the source URL, the checksum and the tree hash (`Tree: <hash>`).
+Author and committer are the local git identity. No tag is created: once
+the pull request is merged (with any method), [`tag_release`](@ref) tags
+the commit of the upstream branch that has this tree. The working tree is not touched and nothing is pushed.
 With `force`, an existing branch and tag are replaced. The import refuses
 to start when the local upstream branch differs from `origin`'s, unless
 `allow_stale` (see [`check_not_stale`](@ref)).
@@ -187,36 +190,27 @@ function import_release(u::Upstream, v::VersionNumber; repo,
         length(dropped) > 5 ? ", ..." : "")
     extra = isempty(dropped) ? "" :
             "Tarball files replaced by kept paths: $(join(dropped, ", "))\n"
-    msg = import_message(u, v, src, extra)
+    msg = import_message(u, v, src, tree, extra)
     commit = git(repo, "commit-tree", tree, "-p", up_sha; input = msg)
     git(repo, "branch", (force ? ("-f",) : ())..., branch, commit)
-    tagmsg = """
-    upstream $(u.name) $v
-
-    Source: $(src.url)
-    $(uppercase(u.checksum_algorithm)): $(src.checksum)  $(src.filename)
-
-    Assisted-by: AI
-    """
-    git(repo, "tag", "-a", (force ? ("-f",) : ())..., "-F", "-", tag, commit;
-        input = tagmsg)
     stat = git(repo, "diff", "--shortstat", up_sha, commit)
     println(io, """
 
     Created commit $(short(commit)) "import upstream $(u.name) $v"
       on branch $branch (parent: $(u.upstream_branch) = $(short(up_sha)), from $up_ref)
-      tagged $tag
+      tree $tree
       change from $(u.upstream_branch): $(isempty(stat) ? "none (identical trees)" : strip(stat))
 
-    Nothing was pushed. Next steps:
+    Nothing was pushed and nothing was tagged. Next steps:
       1. git -C $repo push origin $branch
-         git -C $repo push origin $tag
       2. open a pull request $branch -> $(u.upstream_branch), e.g.
          gh pr create --repo $(u.repo) --base $(u.upstream_branch) --head $branch \\
            --title "import upstream $(u.name) $v"
-      3. merge it with a merge commit (not squash, not rebase) so that the
-         tagged commit $(short(commit)) stays on $(u.upstream_branch)
-      4. prepare the fork update:
+      3. merge it with any method (merge commit, squash or rebase)
+      4. tag the merged commit (found by its tree), then push the tag:
+         julia --project=. bin/upstream-sync.jl tag $(u.name) $v --repo $repo
+         git -C $repo push origin $tag
+      5. prepare the fork update:
          julia --project=. bin/upstream-sync.jl merge-plan $(u.name) $v --repo $repo
     """)
     return ImportResult(u.name, v, commit, up_sha, branch, tag, src.url,
