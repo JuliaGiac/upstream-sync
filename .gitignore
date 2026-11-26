@@ -29,6 +29,8 @@
 !docs/llms.jl
 !docs/src/
 !docs/src/*.md
+!docs/src/assets/
+!docs/src/assets/*
 
 !.github/
 !.github/dependabot.yml

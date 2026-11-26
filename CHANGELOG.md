@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The documentation has the JuliaGiac look (style, logo and favicon from
+  JuliaGiac/site-kit, `sync.jl documenter`) and links back to
+  https://juliagiac.github.io/.
 - `import` and `merge-plan` refuse to work from a local upstream (resp.
   fork) branch that differs from the same branch on `origin` (read with
   `git ls-remote`), with the command to update it; `--allow-stale`
