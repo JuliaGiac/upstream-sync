@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The documentation has the JuliaGiac look (style, logo and favicon from
+  JuliaGiac/site-kit, `sync.jl documenter`) and links back to
+  https://juliagiac.github.io/.
 - The documentation is published to https://juliagiac.github.io/upstream-sync/
   by `.github/workflows/pages.yml` on every push to `main`.
 - `import` and `merge-plan` refuse to work from a local upstream (resp.
